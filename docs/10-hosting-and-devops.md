@@ -66,7 +66,7 @@ flowchart TB
 
 **Docker:** keep Docker Desktop (WSL2 backend), but **update it**. 24.0.7 is from 2023. Set it to start when you sign in, and turn on Windows' "Use my sign-in info to automatically finish setting up after an update", so the stack comes back after Windows Update reboots.
 
-**The GPU** will read shelf photos (ADR-033, your call of 2026-11-10; not built yet): an open model served by llama.cpp, about 7 GB of the card's 12 GB while it is loaded, loaded on demand and unloaded when idle. Everything else in recognition still runs on the iPhone (ADR-017).
+**The GPU** reads shelf photos (ADR-033, your call of 2026-11-10; running since 2026-11-12): an open model served by llama.cpp in the `shelf-reader` container, about 8 GB of the card's 12 GB while it is loaded, unloaded after five idle minutes and loaded again in seconds from a Docker volume the deployer fills and verifies. The deployer switches it on by itself and checks that it really uses the card; `CM_SHELF_READER=0` in `.env` switches it off (see `deploy/README.md`). Everything else in recognition still runs on the iPhone (ADR-017).
 
 ## Availability: what if the PC is off?
 
@@ -88,7 +88,7 @@ Checked on the PC on 2026-10-12:
   - Postgres isn't published to the host at all.
 - **Tailscale Serve** has no configuration yet, so CollectionMaxxing takes HTTPS 443 on the PC's `ts.net` name. If you later put Jellyfin behind Tailscale Serve too, give it another HTTPS port.
 - **CPU, GPU and RAM:**
-  - The media servers transcode on the GPU and CPU. This app uses no GPU today and well under one core; the shelf reader (ADR-033, not built yet) will take about 7 GB of graphics memory while loaded, on top of about 2.4 GB already in use.
+  - The media servers transcode on the GPU and CPU. This app uses no GPU today and well under one core; the shelf reader (ADR-033) takes about 8 GB of graphics memory while loaded and none while idle, on top of about 2 GB already in use.
   - Cap Docker's WSL2 VM in `%UserProfile%\.wslconfig` (`memory=4GB`), so it never squeezes ErsatzTV (~2.5 GB) or Plex. By default WSL2 can take up to half your RAM.
 - **Docker Desktop wasn't running** when checked. Set it to start when you sign in, the way Plex and ErsatzTV already do.
 
