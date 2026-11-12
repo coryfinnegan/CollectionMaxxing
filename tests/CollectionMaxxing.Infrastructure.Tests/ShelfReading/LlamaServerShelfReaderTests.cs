@@ -27,11 +27,33 @@ public sealed class LlamaServerShelfReaderTests : IDisposable
 
     public void Dispose() => _server.Dispose();
 
-    private LlamaServerShelfReader Reader(Action<ShelfReaderOptions>? tweak = null, string? endpoint = null)
+    private LlamaServerShelfReader Reader(Action<ShelfReaderOptions>? tweak = null, string? endpoint = null, TimeSpan? floor = null)
     {
         var options = new ShelfReaderOptions { Endpoint = endpoint ?? _server.Url!, Model = "test-model", TimeoutSeconds = 30 };
         tweak?.Invoke(options);
-        return new LlamaServerShelfReader(new HttpClient { Timeout = Timeout.InfiniteTimeSpan }, Options.Create(options), _log);
+        return new LlamaServerShelfReader(new HttpClient { Timeout = Timeout.InfiniteTimeSpan }, Options.Create(options), _log)
+        {
+            SecondLookFloor = floor ?? TimeSpan.FromSeconds(LlamaServerShelfReader.DefaultSecondLookFloorSeconds),
+        };
+    }
+
+    [Fact]
+    public void The_second_look_floor_defaults_to_ten_seconds()
+    {
+        new LlamaServerShelfReader(new HttpClient(), Options.Create(new ShelfReaderOptions()), _log).SecondLookFloor.ShouldBe(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task A_second_turn_that_repeats_one_new_title_over_and_over_adds_nothing()
+    {
+        Reply(FirstAnswer);
+        ReplySecond(Items(Enumerable.Repeat(("Hamlet", "", "book"), 30).ToArray()));
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        result.Items.Select(i => i.Title).ShouldBe(["Dune", "Emma"]);
+        SecondRequests.ShouldBe(1);
     }
 
     private void Reply(string content, string finish = "stop", int status = 200)
@@ -39,6 +61,248 @@ public sealed class LlamaServerShelfReaderTests : IDisposable
         var body = JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content }, finish_reason = finish } } });
         _server.Given(Request.Create().WithPath(Path).UsingPost())
             .RespondWith(Response.Create().WithStatusCode(status).WithHeader("Content-Type", "application/json").WithBody(body));
+    }
+
+    private const string SecondMatch = "*Look at the photo again*";
+
+    private void ReplySecond(string content, string finish = "stop", int status = 200, TimeSpan? delay = null)
+    {
+        var body = JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content }, finish_reason = finish } } });
+        ReplySecondRaw(body, status, delay);
+    }
+
+    private void ReplySecondRaw(string body, int status = 200, TimeSpan? delay = null)
+    {
+        var response = Response.Create().WithStatusCode(status).WithHeader("Content-Type", "application/json").WithBody(body);
+        _server.Given(Request.Create().WithPath(Path).UsingPost().WithBody(new WireMock.Matchers.WildcardMatcher(SecondMatch)))
+            .AtPriority(-1)
+            .RespondWith(delay is { } d ? response.WithDelay(d) : response);
+    }
+
+    private static readonly string FirstAnswer = Items(("Dune", "Frank Herbert", "book"), ("Emma", "Austen", "book"));
+
+    private int SecondRequests => _server.LogEntries.Count(e => e.RequestMessage!.Body!.Contains("Look at the photo again"));
+
+    [Fact]
+    public async Task A_second_look_appends_new_items_after_the_first_ones_and_skips_repeated_titles()
+    {
+        Reply(FirstAnswer);
+        ReplySecond(Items((" dune ", "", "book"), ("Hamlet", "Shakespeare", "book"), ("Alien", "", "film")));
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        result.Items.Select(i => i.Title).ShouldBe(["Dune", "Emma", "Hamlet", "Alien"]);
+        result.Items[2].Creator.ShouldBe("Shakespeare");
+        _server.LogEntries.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task The_reported_time_is_the_sum_of_both_turns()
+    {
+        ReplySecond("""{"items":[]}""", delay: TimeSpan.FromMilliseconds(700));
+        _server.Given(Request.Create().WithPath(Path).UsingPost()).AtPriority(5)
+            .RespondWith(Response.Create().WithHeader("Content-Type", "application/json").WithDelay(TimeSpan.FromMilliseconds(700))
+                .WithBody(JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content = FirstAnswer }, finish_reason = "stop" } } })));
+
+        await Reader().ReadAsync(Jpeg, default);
+
+        var line = _log.Messages.Single(m => m.StartsWith("Shelf read ended"));
+        var ms = int.Parse(line.Split(" in ")[1].Split(' ')[0]);
+        ms.ShouldBeGreaterThanOrEqualTo(1400);
+    }
+
+    [Fact]
+    public async Task An_empty_second_list_changes_nothing()
+    {
+        Reply(FirstAnswer);
+        ReplySecond("""{"items":[]}""");
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        result.Items.Select(i => i.Title).ShouldBe(["Dune", "Emma"]);
+        SecondRequests.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task The_second_request_carries_the_picture_the_first_answer_as_assistant_and_the_follow_up_with_its_own_token_cap()
+    {
+        Reply(FirstAnswer);
+        ReplySecond("""{"items":[]}""");
+
+        await Reader(o => { o.MaxTokens = 1234; o.SecondLookMaxTokens = 321; }).ReadAsync(Jpeg, default);
+
+        var entries = _server.LogEntries.Select(e => e.RequestMessage!.Body!).ToArray();
+        entries.Length.ShouldBe(2);
+        using var first = JsonDocument.Parse(entries[0]);
+        using var second = JsonDocument.Parse(entries[1]);
+        first.RootElement.GetProperty("max_tokens").GetInt32().ShouldBe(1234);
+        second.RootElement.GetProperty("max_tokens").GetInt32().ShouldBe(321);
+        second.RootElement.GetProperty("temperature").GetDouble().ShouldBe(0);
+        second.RootElement.GetProperty("model").GetString().ShouldBe("test-model");
+        second.RootElement.GetProperty("response_format").GetRawText().ShouldBe(first.RootElement.GetProperty("response_format").GetRawText());
+        var messages = second.RootElement.GetProperty("messages").EnumerateArray().ToArray();
+        messages.Length.ShouldBe(3);
+        messages[0].GetRawText().ShouldBe(first.RootElement.GetProperty("messages")[0].GetRawText());
+        messages[0].GetProperty("content").EnumerateArray().First().GetProperty("image_url").GetProperty("url").GetString()
+            .ShouldBe("data:image/jpeg;base64," + Convert.ToBase64String(Jpeg));
+        messages[1].GetProperty("role").GetString().ShouldBe("assistant");
+        messages[1].GetProperty("content").GetString().ShouldBe(FirstAnswer);
+        messages[2].GetProperty("role").GetString().ShouldBe("user");
+        messages[2].GetProperty("content").GetString().ShouldBe(
+            "Look at the photo again, shelf by shelf, including lower shelves and stacks. List only the items you have not listed yet, in the same format. If you have listed every item you can read, answer with an empty list.");
+    }
+
+    [Fact]
+    public async Task The_assistant_message_is_the_first_reply_exactly_as_the_server_returned_it()
+    {
+        const string odd = "  {\"items\":[{\"title\":\"Dune\",\"creator\":\"\",\"kind\":\"book\"}]}\n ";
+        Reply(odd);
+        ReplySecond("""{"items":[]}""");
+
+        await Reader().ReadAsync(Jpeg, default);
+
+        using var second = JsonDocument.Parse(_server.LogEntries[^1].RequestMessage!.Body!);
+        second.RootElement.GetProperty("messages")[1].GetProperty("content").GetString().ShouldBe(odd);
+    }
+
+    [Theory]
+    [InlineData("cut")]
+    [InlineData("unparsable")]
+    [InlineData("500")]
+    public async Task A_failed_second_look_leaves_the_first_answer_standing_with_status_ok(string kind)
+    {
+        Reply(FirstAnswer);
+        switch (kind)
+        {
+            case "cut":
+                ReplySecond("""{"items":[{"title":"THE C","creator":"","kind":"book"},{"title":"a Co""", "length");
+                break;
+            case "unparsable":
+                ReplySecond("I see more books.");
+                break;
+            default:
+                ReplySecond("oops", status: 500);
+                break;
+        }
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        result.Items.Select(i => i.Title).ShouldBe(["Dune", "Emma"]);
+        SecondRequests.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("""{"choices":[]}""")]
+    [InlineData("""{}""")]
+    [InlineData("""{"choices":[{"message":{"content":null},"finish_reason":"stop"}]}""")]
+    public async Task A_second_look_with_no_usable_choice_leaves_the_first_answer_standing(string body)
+    {
+        Reply(FirstAnswer);
+        ReplySecondRaw(body);
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        result.Items.Select(i => i.Title).ShouldBe(["Dune", "Emma"]);
+        SecondRequests.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_second_look_that_runs_out_of_the_time_budget_leaves_the_first_answer_standing()
+    {
+        Reply(FirstAnswer);
+        ReplySecond(Items(("Hamlet", "", "book")), delay: TimeSpan.FromSeconds(5));
+
+        var result = await Reader(o => o.TimeoutSeconds = 1, floor: TimeSpan.Zero).ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        result.Items.Select(i => i.Title).ShouldBe(["Dune", "Emma"]);
+    }
+
+    [Fact]
+    public async Task With_less_than_the_floor_left_after_the_first_turn_there_is_no_second_look()
+    {
+        _server.Given(Request.Create().WithPath(Path).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+                .WithBody(JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content = FirstAnswer }, finish_reason = "stop" } } }))
+                .WithDelay(TimeSpan.FromMilliseconds(1500)));
+
+        var result = await Reader(o => o.TimeoutSeconds = 3, floor: TimeSpan.FromSeconds(2)).ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        _server.LogEntries.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Cancelling_during_the_second_look_propagates()
+    {
+        Reply(FirstAnswer);
+        ReplySecond(Items(("Hamlet", "", "book")), delay: TimeSpan.FromSeconds(5));
+        using var cts = new CancellationTokenSource();
+        var read = Reader().ReadAsync(Jpeg, cts.Token);
+        await Task.Delay(1500);
+        await cts.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(() => read);
+    }
+
+    [Theory]
+    [InlineData("cut")]
+    [InlineData("empty")]
+    [InlineData("failed")]
+    [InlineData("repeats")]
+    [InlineData("unclosed")]
+    [InlineData("off")]
+    [InlineData("noroom")]
+    public async Task No_second_look_when_the_first_answer_is_not_good_or_the_setting_or_time_is_missing(string kind)
+    {
+        switch (kind)
+        {
+            case "cut":
+                Reply("""{"items":[{"title":"Emma","creator":"","kind":"book"},{"title":"Ali""", finish: "length");
+                break;
+            case "empty":
+                Reply("""{"items":[]}""");
+                break;
+            case "failed":
+                Reply("oops", status: 500);
+                break;
+            case "repeats":
+                Reply(Items(("Dune", "", "book"), ("Dune", "", "book"), ("Dune", "", "book"), ("Emma", "", "book")));
+                break;
+            case "unclosed":
+                Reply("""{"items":[{"title":"Emma","creator":"","kind":"book"},{"title":"Ali""", finish: "stop");
+                break;
+            default:
+                Reply(FirstAnswer);
+                break;
+        }
+
+        await Reader(o =>
+        {
+            o.SecondLook = kind != "off";
+            if (kind == "noroom")
+            {
+                o.TimeoutSeconds = 9;
+            }
+        }).ReadAsync(Jpeg, default);
+
+        _server.LogEntries.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task The_second_look_logs_no_titles()
+    {
+        Reply(Items(("Secret Title", "", "book")));
+        ReplySecond(Items(("Secret Other", "", "book")));
+
+        await Reader().ReadAsync(Jpeg, default);
+
+        _log.Messages.Count.ShouldBe(2);
+        _log.Messages.ShouldAllBe(m => !m.Contains("Secret"));
     }
 
     private static string Items(params (string Title, string Creator, string Kind)[] items) =>
@@ -61,7 +325,7 @@ public sealed class LlamaServerShelfReaderTests : IDisposable
     {
         Reply(Items(("Dune", "Frank Herbert", "book")));
 
-        var result = await Reader(o => o.MaxTokens = 1234).ReadAsync(Jpeg, default);
+        var result = await Reader(o => { o.MaxTokens = 1234; o.SecondLook = false; }).ReadAsync(Jpeg, default);
 
         result.Status.ShouldBe(ShelfReadStatus.Ok);
         var request = _server.LogEntries.Single().RequestMessage!;

@@ -17,6 +17,7 @@ public sealed class ShelfReaderRegistrationTests
     [InlineData("MaxLongEdge", "0")]
     [InlineData("TimeoutSeconds", "0")]
     [InlineData("MaxRepeats", "0")]
+    [InlineData("SecondLookMaxTokens", "0")]
     public async Task A_bad_setting_fails_the_options_check_and_the_reader_then_reports_unavailable(string name, string value)
     {
         var services = new ServiceCollection();
