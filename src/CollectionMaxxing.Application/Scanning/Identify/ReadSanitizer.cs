@@ -89,16 +89,33 @@ public static class ReadSanitizer
             }
         }
 
-        return facts with
+        platform = string.IsNullOrWhiteSpace(platform) ? null : platform;
+        var split = EditionOfTitle(facts, kind, platform);
+        var titled = split is null ? facts : facts with { Title = split.Title };
+        var edition = IsEditionMark(facts.Edition) ? facts.Edition : null;
+        return titled with
         {
             Kind = kind,
             Format = format,
-            Platform = string.IsNullOrWhiteSpace(platform) ? null : platform,
+            Platform = platform,
             Completeness = CompletenessFor(kind, format, facts.Completeness),
-            Edition = IsEditionMark(facts.Edition) ? facts.Edition : null,
-            Creator = IsCreator(facts.Creator, facts.SearchText, kind) ? facts.Creator : null,
+            Edition = edition ?? split?.Phrase,
+            Creator = IsCreator(facts.Creator, titled.SearchText, kind) ? facts.Creator : null,
         };
     }
+
+    /// <summary>
+    /// The edition phrase a case prints after its title ("HIGHLANDER: DIRECTOR'S CUT", <see cref="EditionPhrases"/>), split off the read
+    /// title so the title alone is searched and scored, and the phrase kept as the read's edition when the reader gave none. Only for a
+    /// read that names a film, a show or a book, with no console and no product code: a game's "Special Edition" or "Collector's Edition"
+    /// is often the title its catalogue holds, and a read that names no kind may be a game. Null when the title does not end in a phrase,
+    /// or is nothing but one. <see cref="ReadFacts.Text"/> stays.
+    /// </summary>
+    private static EditionSplit? EditionOfTitle(ReadFacts facts, WorkKind? kind, string? platform) =>
+        kind is not (WorkKind.Film or WorkKind.Tv or WorkKind.Book) || facts.ProductCode is not null || PlatformNames.IsKnown(platform)
+            || string.IsNullOrWhiteSpace(facts.Title)
+            ? null
+            : EditionPhrases.Trailing(facts.Title);
 
     // A book has no cartridge or disc to lose; a disc can't be a loose cartridge (a bare VHS tape can).
     private static ItemCompleteness? CompletenessFor(WorkKind? kind, ReleaseFormat? format, ItemCompleteness? completeness) => kind switch

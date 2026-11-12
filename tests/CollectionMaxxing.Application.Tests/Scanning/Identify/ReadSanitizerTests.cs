@@ -21,6 +21,68 @@ public class ReadSanitizerTests
         string? creator = null) =>
         new(title, title, creator, edition, completeness, kind, format, null, platform);
 
+    // #815: a case's edition phrase read into the title made the search find a film called "Cut!" for "HIGHLANDER: DIRECTOR'S CUT".
+    [Theory]
+    [InlineData("HIGHLANDER: DIRECTOR'S CUT", WorkKind.Film)]
+    [InlineData("HIGHLANDER DIRECTOR'S CUT", WorkKind.Film)]
+    [InlineData("HIGHLANDER WIDESCREEN", WorkKind.Film)]
+    [InlineData("HIGHLANDER: DIRECTOR'S CUT", WorkKind.Tv)]
+    [InlineData("HIGHLANDER SPECIAL EDITION", WorkKind.Book)]
+    public void A_film_read_with_an_edition_phrase_after_its_title_is_asked_as_the_title_alone_and_keeps_the_phrase_as_its_edition(string read, WorkKind? kind)
+    {
+        var clean = ReadSanitizer.Sanitize(Read(read, kind));
+
+        clean.Title.ShouldBe("HIGHLANDER");
+        clean.SearchText.ShouldBe("HIGHLANDER");
+        clean.Edition.ShouldNotBeNull();
+        read.ShouldEndWith(clean.Edition);
+        clean.Text.ShouldBe(read); // the words that were read stay what was read
+    }
+
+    [Fact]
+    public void An_edition_the_reader_gave_is_kept_when_the_title_also_ends_in_a_phrase()
+    {
+        ReadSanitizer.Sanitize(Read("HIGHLANDER DIRECTOR'S CUT", WorkKind.Film, edition: "Unrated")).Edition.ShouldBe("Unrated");
+    }
+
+    [Theory]
+    [InlineData("Director's Cut", WorkKind.Film)] // a title that is only an edition phrase may be the real title
+    [InlineData("The Final Cut", WorkKind.Film)] // a title that ends in "Cut" is no edition
+    [InlineData("Copper Lantern: Special Edition", WorkKind.Game)] // a game's edition is often its catalogue title
+    public void A_title_that_is_only_an_edition_phrase_ends_in_no_phrase_or_is_a_game_keeps_its_words(string read, WorkKind kind)
+    {
+        var clean = ReadSanitizer.Sanitize(Read(read, kind));
+
+        clean.Title.ShouldBe(read);
+        clean.Edition.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("Copper Lantern Collector's Edition")]
+    [InlineData("Copper Lantern: Special Edition")]
+    [InlineData("HIGHLANDER: DIRECTOR'S CUT")]
+    public void A_read_that_names_no_kind_keeps_its_edition_phrase_as_it_may_be_a_game(string read)
+    {
+        var clean = ReadSanitizer.Sanitize(Read(read, kind: null));
+
+        clean.Title.ShouldBe(read);
+        clean.Edition.ShouldBeNull();
+    }
+
+    [Fact]
+    public void An_edition_in_brackets_is_kept_without_its_brackets()
+    {
+        ReadSanitizer.Sanitize(Read("Highlander - Director's Cut [Widescreen]", WorkKind.Film)).ShouldSatisfyAllConditions(
+            clean => clean.Title.ShouldBe("Highlander"),
+            clean => clean.Edition.ShouldBe("Director's Cut Widescreen"));
+    }
+
+    [Fact]
+    public void A_read_on_a_known_console_keeps_its_edition_phrase_whatever_its_kind()
+    {
+        ReadSanitizer.Sanitize(Read("Copper Lantern Collector's Edition", kind: null, platform: "PlayStation 2")).Title.ShouldBe("Copper Lantern Collector's Edition");
+    }
+
     [Theory]
     [InlineData("book")]
     [InlineData("boxed")]

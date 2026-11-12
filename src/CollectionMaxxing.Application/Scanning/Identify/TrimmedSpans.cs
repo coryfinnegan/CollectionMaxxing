@@ -1,7 +1,12 @@
+using CollectionMaxxing.Domain.Catalog.Matching;
+
 namespace CollectionMaxxing.Application.Scanning.Identify;
 
-/// <summary>One span of a read title: the words kept, and the words dropped from its ends to make it (for the trace).</summary>
-public sealed record TrimmedSpan(string Text, string Dropped);
+/// <summary>
+/// One span of a read title: the words kept, and the words dropped from its ends to make it (for the trace). <paramref name="DroppedStart"/>
+/// is the words dropped from its start alone, as read ("" when none were).
+/// </summary>
+public sealed record TrimmedSpan(string Text, string Dropped, string DroppedStart = "");
 
 /// <summary>
 /// The spans a spine read is asked again with when the whole read found nothing. Vision reads a shelf spine with an author's
@@ -34,7 +39,8 @@ public static class TrimmedSpans
     /// <summary>
     /// The spans of <paramref name="title"/> to try, in order: one word off the start; one off the end; one off each end; two off
     /// the start; two off the end. A span that keeps too little to search for is left out (<see cref="MinWordsKept"/>,
-    /// <see cref="MinLettersOfOneWord"/>), and so is one with the same words (whatever their case) as a span already in the list.
+    /// <see cref="MinLettersOfOneWord"/>), and so is one that is only an edition phrase (<see cref="EditionPhrases"/>) or has the
+    /// same words (whatever their case) as a span already in the list.
     /// At most <see cref="MaxSpans"/>. None for a title of fewer than <see cref="MinWordsInRead"/> words, or no title.
     /// </summary>
     public static IReadOnlyList<TrimmedSpan> For(string? title)
@@ -55,13 +61,14 @@ public static class TrimmedSpans
                 continue;
             }
 
+            // An edition phrase is no title to search for: "X DIRECTOR'S CUT" without its first word is "DIRECTOR'S CUT".
             var text = string.Join(' ', kept);
-            if (!tried.Add(text))
+            if (EditionPhrases.IsOnlyAPhrase(text) || !tried.Add(text))
             {
                 continue;
             }
 
-            spans.Add(new TrimmedSpan(text, Dropped(words, start, end)));
+            spans.Add(new TrimmedSpan(text, Dropped(words, start, end), string.Join(' ', words[..start])));
             if (spans.Count == MaxSpans)
             {
                 break;
@@ -70,6 +77,38 @@ public static class TrimmedSpans
 
         return spans;
     }
+
+    /// <summary>
+    /// Whether a release a span found carries the read's leading words: the first distinctive word of the read, and every distinctive word
+    /// the span dropped from its start, each a word of the release's title or of one of its creators' names. A distinctive word is a title
+    /// word (<see cref="TitleWordSet"/>: two letters or more, no stop word) that is not only digits, so a leading "THE", an initial or a
+    /// sticker number asks nothing. True when the read has no such word. Pure; <see cref="IdentifyGrounding"/> asks it for a read that is
+    /// only a reader's title, with no text or lines of print.
+    /// </summary>
+    public static bool FindCarriesLeadingWords(string? read, TrimmedSpan span, string? title, IEnumerable<string> creators)
+    {
+        ArgumentNullException.ThrowIfNull(span);
+        ArgumentNullException.ThrowIfNull(creators);
+
+        var leading = (read ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Select(Distinctive).FirstOrDefault(words => words.Count > 0) ?? [];
+        var needed = Distinctive(span.DroppedStart);
+        needed.UnionWith(leading);
+        if (needed.Count == 0)
+        {
+            return true;
+        }
+
+        var carried = TitleWordSet.Of(title);
+        foreach (var creator in creators)
+        {
+            carried.UnionWith(TitleWordSet.Of(creator));
+        }
+
+        return needed.All(carried.Contains);
+    }
+
+    private static HashSet<string> Distinctive(string? text) => [.. TitleWordSet.Of(text).Where(word => !word.All(char.IsAsciiDigit))];
 
     /// <summary>Whether words are enough to search for: at least <see cref="MinWordsKept"/>, or one of at least <see cref="MinLettersOfOneWord"/> letters.</summary>
     internal static bool WorthSearching(string[] kept) =>

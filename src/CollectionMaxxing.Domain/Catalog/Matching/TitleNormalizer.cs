@@ -123,6 +123,16 @@ public static class TitleNormalizer
     public const double MainTitleCredit = 0.8;
 
     /// <summary>
+    /// What a book's title is worth when it is the part of the read after the colon: "Crescent City: House of Earth and Blood" read
+    /// off a cover against the book "House of Earth and Blood", where the part before the colon is the series. A hair above
+    /// <see cref="MainTitleCredit"/>, so that of a book titled with the series alone and one titled with what follows it, the latter
+    /// ranks first; under 0.845 for the same reason as the main title, so it never matches on title and kind alone. The scorer gives
+    /// it to books only, and only when the read names an author the book agrees with (<see cref="MatchScorer"/>): a film's catalogue
+    /// title carries its franchise, and a subtitle with no author behind it may be any book's title.
+    /// </summary>
+    public const double SeriesSubtitleCredit = 0.82;
+
+    /// <summary>
     /// What a title found whole inside a longer read is worth when one word of other print stands beside it ("DUNE F H"
     /// for "Dune", "7 THE SHIPPING NEWS" for "The Shipping News"): enough to offer the release, and no more. Each
     /// further word of other print costs <see cref="ExtraPrintCost"/>, so the longest title a read holds ranks above a
