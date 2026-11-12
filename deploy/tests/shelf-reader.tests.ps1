@@ -1532,9 +1532,13 @@ function Get-ReaderStateAfter803 {
     $s
 }
 function Find-TestBash {
-    $git = if ($env:ProgramFiles) { @((Join-Path $env:ProgramFiles 'Git/bin/bash.exe'), (Join-Path $env:ProgramFiles 'Git/usr/bin/bash.exe')) } else { @() }
-    $candidates = @($git + '/bin/bash' + '/usr/bin/bash') | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
-    if ($candidates) { return @($candidates)[0] }
+    # Built as a list, not "$git + '/bin/bash'": on Linux there is no ProgramFiles, an if that yields an empty array is
+    # $null, and $null + two strings is one glued path that never exists.
+    $candidates = @()
+    if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'Git/bin/bash.exe'), (Join-Path $env:ProgramFiles 'Git/usr/bin/bash.exe') }
+    $candidates += '/bin/bash', '/usr/bin/bash'
+    $found = $candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+    if ($found) { return $found }
     throw 'bash was not found (install Git for Windows, or run on Linux): the fill script is tested by running it'
 }
 function Invoke-TestFillScript {
