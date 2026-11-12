@@ -121,6 +121,14 @@ public static class UndoScanCommit
             foreach (var candidate in made)
             {
                 candidate.CreatedItemId = null; // the change counter's trigger sends each one again
+
+                // The person chose to add each of these: their acceptance is theirs now, not the server's default, so nothing the
+                // server does later (a late shelf read, #814) treats the row as one it may still change.
+                var trace = CandidateJson.ReadTrace(candidate.TraceJson);
+                if (trace.AutoDecision is not null)
+                {
+                    candidate.TraceJson = CandidateJson.Serialize(trace with { AutoDecision = null });
+                }
             }
 
             db.Items.RemoveRange(items); // the DELETE checks each row's version: an edit that lands after the check above wins and nothing is deleted
