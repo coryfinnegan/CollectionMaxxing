@@ -56,6 +56,12 @@ public sealed class SecurityOptions
         /// </summary>
         public GroupLimit Identify { get; set; } = new(500, 60);
 
+        /// <summary>
+        /// Reading a shelf snap on the server's own shelf reader (ADR-033): 20 a minute per user. A read takes 10 to 25 seconds on the one card, so
+        /// the queue in front of the reader (<c>ShelfReader:QueueWaitSeconds</c>) is the real limit; this stops one person from filling it.
+        /// </summary>
+        public GroupLimit ShelfRead { get; set; } = new(20, 60);
+
         /// <summary>Starting an export: once every 10 minutes per user.</summary>
         public GroupLimit Export { get; set; } = new(1, 600);
 
@@ -68,7 +74,7 @@ public sealed class SecurityOptions
         public IEnumerable<(string Name, GroupLimit Limit)> All =>
         [
             (nameof(Default), Default), (nameof(Search), Search), (nameof(Barcodes), Barcodes),
-            (nameof(Identify), Identify), (nameof(Export), Export), (nameof(AuthHourly), AuthHourly),
+            (nameof(Identify), Identify), (nameof(ShelfRead), ShelfRead), (nameof(Export), Export), (nameof(AuthHourly), AuthHourly),
         ];
     }
 }

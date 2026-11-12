@@ -67,4 +67,7 @@ public sealed class ScanSnap : ILibraryScoped
     public Guid? AssetId { get; init; }
 
     public DateTimeOffset CreatedAt { get; init; }
+
+    /// <summary>When the server's shelf reader read this snap's picture and its finds were kept (ADR-033); null until then. A snap is read once.</summary>
+    public DateTimeOffset? ServerReadAt { get; set; }
 }

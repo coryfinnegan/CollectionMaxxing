@@ -112,7 +112,7 @@ public partial class AuthorizationMatrixTests(ApiFixture api) : ApiTest(api)
             "id" => LocationId.ToString(),
             "cid" when route.Contains("/scan-sessions/", StringComparison.Ordinal) =>
                 (OwnCandidates.TryGetValue(actor, out var candidate) ? candidate : OwnCandidates[Actor.Editor]).ToString(),
-            "cid" or "userId" or "assetId" => Guid.CreateVersion7().ToString(),
+            "cid" or "snapId" or "userId" or "assetId" => Guid.CreateVersion7().ToString(),
             "token" => "a-token",
             "set" => "single", // a golden folder's set (the eval photo upload)
             "photoId" => "c1", // a golden photo's id (a photo sent to the open eval run)
