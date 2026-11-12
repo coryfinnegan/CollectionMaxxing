@@ -152,7 +152,7 @@ public static class EvalCombination
 
             var row = !IsShelfShot(truth) ? Combine(server, vision, shelf: false)
                 : server.Outcome != Ok ? phoneRows.GetValueOrDefault(server.PhotoId) ?? Combine(server, vision, shelf: true)
-                : ServerFirst(server, vision);
+                : ServerFirst(server, vision, phoneRows.GetValueOrDefault(server.PhotoId));
             rows.Add(row with { Engine = ServerEngines.Vision, TimedOut = null }); // the server_model row reports its own timeouts
         }
 
@@ -162,17 +162,33 @@ public static class EvalCombination
     /// <summary>
     /// The shelf once the server has read it (<see cref="PcShelfUpgrade"/>): the server's items in order, unconfirmed unless a Vision item
     /// names the same release, then the Vision items the rule keeps, unconfirmed. When Vision did not answer there are no Vision items.
+    /// When the server read nothing the row is the photo's <c>apple_vision</c> row, as for a failed read; when it read items but the
+    /// catalogue matched none of them, its items come first and then the <c>apple_vision</c> row's items as they are.
     /// The rest of the row (the time both reads took, the counts) is the server's row's, with Vision's thermal state, as the combination
     /// reports it.
     /// </summary>
-    private static GroundedPhoto ServerFirst(GroundedPhoto server, GroundedPhoto vision)
+    private static GroundedPhoto ServerFirst(GroundedPhoto server, GroundedPhoto vision, GroundedPhoto? phone)
     {
         var serverItems = server.ItemsLentPrint ?? server.Items;
         var visionItems = vision.Outcome == Ok ? vision.Items : [];
         var decision = PcShelfUpgrade.Decide([.. serverItems.Select(ShelfReadOf)], [.. visionItems.Select(ShelfReadOf)]);
+        if (decision.PhoneStands && serverItems.Count == 0 && phone is not null)
+        {
+            return phone; // the server read nothing: nothing changes on the phone
+        }
+
         var items = new List<GroundedItem>(serverItems.Count + visionItems.Count);
         items.AddRange(serverItems.Select((item, i) => item with { Unconfirmed = !decision.ServerConfirmed[i] }));
-        items.AddRange(visionItems.Where((_, i) => decision.VisionKept[i]).Select(item => item with { Unconfirmed = true }));
+        if (decision.PhoneStands)
+        {
+            // The server named no release: the phone's rows stand as the phone shows them, after the server's finds.
+            items.AddRange(phone?.Items ?? visionItems);
+        }
+        else
+        {
+            items.AddRange(visionItems.Where((_, i) => decision.VisionKept[i]).Select(item => item with { Unconfirmed = true }));
+        }
+
         return server with
         {
             Items = items,

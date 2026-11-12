@@ -51,9 +51,11 @@ public static class PcShelfUpgrade
     /// <summary>
     /// What the rule decided for one photo. <see cref="ServerConfirmed"/>: for each server read, whether a Vision read names its release
     /// (it may then be added by itself). <see cref="VisionKept"/>: for each Vision read, whether it stands beside the server's reads.
-    /// Every server read stands; no Vision read the rule keeps is confirmed.
+    /// Every server read stands; no Vision read the rule keeps is confirmed. <see cref="PhoneStands"/>: no server read names a release (it read
+    /// nothing, or the catalogue matched none of it), so the read is no evidence against the phone's rows: they all stand as they are, and the
+    /// phone model's reads with them (<see cref="VisionKept"/> is then all true).
     /// </summary>
-    public sealed record Decision(IReadOnlyList<bool> ServerConfirmed, IReadOnlyList<bool> VisionKept);
+    public sealed record Decision(IReadOnlyList<bool> ServerConfirmed, IReadOnlyList<bool> VisionKept, bool PhoneStands = false);
 
     /// <summary>Whether a read the server's reader made can be used at all: it answered, or it was cut short with what it had read. Otherwise nothing changes.</summary>
     public static bool IsUsable(ShelfReadStatus status) => status is ShelfReadStatus.Ok or ShelfReadStatus.CutShort;
@@ -61,6 +63,11 @@ public static class PcShelfUpgrade
     /// <summary>The rule over one photo's reads: <paramref name="server"/> (the server's, skipped reads left out) and <paramref name="vision"/> (Vision's).</summary>
     public static Decision Decide(IReadOnlyList<ShelfRead> server, IReadOnlyList<ShelfRead> vision)
     {
+        if (!server.Any(read => read.Release is not null))
+        {
+            return new Decision([.. server.Select(_ => false)], [.. vision.Select(_ => true)], PhoneStands: true);
+        }
+
         var families = server.Select(read => FamilyOf(read.BestKind ?? read.ReadKind)).OfType<KindFamily>().ToHashSet();
         var confirmed = server.Select(read => read.Release is { } key && vision.Any(other => other.Release == key)).ToList();
         var kept = vision.Select(read =>

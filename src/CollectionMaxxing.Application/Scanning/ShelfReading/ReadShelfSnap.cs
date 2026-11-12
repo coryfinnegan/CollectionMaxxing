@@ -206,7 +206,10 @@ public static class ReadShelfSnap
                         && (c.Source == CandidateSource.PictureText || c.Source == CandidateSource.PictureAppleModel))
                     .OrderBy(c => c.Seq)
                     .ToListAsync(cancellationToken);
-                var settled = Settle(made, madeFacts, phoneRows, await KindsAsync([.. made, .. phoneRows], cancellationToken));
+                var phoneIds = phoneRows.Select(c => c.Id).ToList();
+                var picked = (await db.MatchFeedback.AsNoTracking().Where(f => phoneIds.Contains(f.CandidateId)).Select(f => f.CandidateId)
+                    .ToListAsync(cancellationToken)).ToHashSet();
+                var settled = Settle(made, madeFacts, phoneRows, await KindsAsync([.. made, .. phoneRows], cancellationToken), picked);
 
                 var nextSeq = (await db.ScanCandidates.Where(c => c.SessionId == session.Id).MaxAsync(c => (int?)c.Seq, cancellationToken) ?? 0) + 1;
                 foreach (var candidate in settled.Added)
@@ -254,7 +257,11 @@ public static class ReadShelfSnap
         /// decided it, not edited, not added, not kept as a provisional record, and answered (a row still Pending has no release to judge).
         /// </summary>
         private static Settled Settle(
-            List<ScanCandidate> server, List<ReadFacts> serverFacts, List<ScanCandidate> phone, IReadOnlyDictionary<Guid, WorkKind> kinds)
+            List<ScanCandidate> server,
+            List<ReadFacts> serverFacts,
+            List<ScanCandidate> phone,
+            IReadOnlyDictionary<Guid, WorkKind> kinds,
+            IReadOnlySet<Guid> picked)
         {
             var standing = phone.Where(row => !SkippedByTheReading(row)).ToList();
             var vision = standing.Where(row => !StoredRead.IsUnconfirmed(row.InferredJson)).ToList();
@@ -283,12 +290,23 @@ public static class ReadShelfSnap
                 }
             }
 
-            var leftOut = vision.Where((row, j) => !decision.VisionKept[j] && !standsIn.Contains(row) && TheServersToChange(row))
-                .Concat(model.Where(row => !standsIn.Contains(row) && TheServersToChange(row)))
+            if (decision.PhoneStands)
+            {
+                return new Settled(added, []); // the server named no release: no evidence against the phone's rows
+            }
+
+            var leftOut = vision.Where((row, j) => !decision.VisionKept[j] && !standsIn.Contains(row) && TheServersToChange(row, picked))
+                .Concat(model.Where(row => !standsIn.Contains(row) && TheServersToChange(row, picked)))
                 .OrderBy(row => row.Seq)
                 .ToList();
             return new Settled(added, leftOut);
         }
+
+        /// <summary>The trace step a search again leaves (<c>SearchForCandidate</c>).</summary>
+        private const string SearchStep = "search";
+
+        /// <summary>The outcome of every server skip's trace step (<see cref="CandidateSkip"/>).</summary>
+        private const string SkippedOutcome = "skipped";
 
         /// <summary>A row identify skipped as a read (a repeat, a lost place, a fragment, an unfound spine): no read of the shelf for the rule.</summary>
         private static bool SkippedByTheReading(ScanCandidate row) =>
@@ -296,17 +314,36 @@ public static class ReadShelfSnap
                 is SkipReason.Repeat or SkipReason.Place or SkipReason.Fragment or SkipReason.UnfoundSpine;
 
         /// <summary>
-        /// Whether the server may still skip a phone row: the person has not decided it (it is undecided, or as the server's own default
-        /// left it), changed it, added it or kept it as a provisional record, nothing added it by itself, and it has an answer.
-        /// A row the server already skipped for another reason (the library owns it, it is on the wishlist) keeps that reason.
+        /// Whether the server may still skip a phone row: nothing the person did is on it, and nothing added it. Each way a person acts on a
+        /// row leaves one of these marks, and any one of them keeps the row as it is: accepting or rejecting it (a decision with no
+        /// <c>AutoDecision</c> beside it: deciding clears the server's own); picking a release (the matched release is no longer the first
+        /// alternative, and a pick of another option is kept as match feedback, <paramref name="picked"/>); searching again (a <c>search</c>
+        /// trace step); changing the format, platform, edition or copies (<see cref="ScanCandidate.UserEdited"/>, <see cref="ScanCandidate.Copies"/>);
+        /// putting a skipped row back (a <c>skipped</c> step on a row that is no longer the server's skip); adding it, or it being added by
+        /// itself (<see cref="ScanCandidate.CreatedItemId"/>, <see cref="ScanCandidate.AutoCommittedItemIds"/>); keeping it as a provisional
+        /// record (<see cref="ScanCandidate.ProvisionalId"/>); undoing its auto-add or setting it back to undecided (a matched read that is
+        /// not model-only, owned or wishlisted is ticked by the resolver, so only a person makes one undecided). A row still Pending has no
+        /// answer to judge. A row the server already skipped for another reason keeps that reason.
         /// </summary>
-        private static bool TheServersToChange(ScanCandidate row)
+        private static bool TheServersToChange(ScanCandidate row, IReadOnlySet<Guid> picked)
         {
             var trace = CandidateJson.ReadTrace(row.TraceJson);
-            var asTheServerLeftIt = row.Decision == CandidateDecision.Undecided
-                || (row.Decision == CandidateDecision.Accepted && trace.AutoDecision == CandidateDecision.Accepted);
+            var first = CandidateJson.ReadAlternatives(row.AlternativesJson) is { Count: > 0 } alternatives ? alternatives[0].ReleaseId : (Guid?)null;
+            var asTheServerLeftIt = row.Decision switch
+            {
+                CandidateDecision.Undecided => !(row.Resolution == CandidateResolution.Matched
+                    && !StoredRead.IsUnconfirmed(row.InferredJson)
+                    && row.AlreadyOwnedCount == 0
+                    && trace.WishlistItemId is null),
+                CandidateDecision.Accepted => trace.AutoDecision == CandidateDecision.Accepted,
+                _ => false,
+            };
             return asTheServerLeftIt
+                && (row.MatchedReleaseId is null || row.MatchedReleaseId == first)
+                && !picked.Contains(row.Id)
+                && !trace.Steps.Any(step => step.Provider == SearchStep || step.Outcome == SkippedOutcome)
                 && !row.UserEdited
+                && row.Copies == 1
                 && row.CreatedItemId is null
                 && row.AutoCommittedItemIds is null
                 && row.ProvisionalId is null
