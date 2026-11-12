@@ -119,6 +119,35 @@ public sealed class ServerFirstRowTests : IDisposable
     }
 
     [Fact]
+    public void A_server_read_with_no_items_changes_nothing_the_row_is_what_the_phone_shows()
+    {
+        var phone = Row(Apple, Book("Ashen Lantern Row"));
+        var vision = Row(Vision, Book("Copper Meadow Song"), Book("Silver Thicket Fair", readAs: "Silver"));
+        var server = Row(ServerModel);
+        var truths = Truths();
+
+        var row = EvalCombination.OfServerRead([phone, server, vision], truths).Single();
+        var shown = EvalCombination.Of([phone, server, vision], truths).Single();
+
+        row.Items.ShouldBe(shown.Items);
+        row.Engine.ShouldBe(ServerEngines.Vision);
+    }
+
+    [Fact]
+    public void A_server_read_the_catalogue_matched_none_of_comes_first_and_the_phones_items_follow_as_they_are()
+    {
+        var phone = Row(Apple, Book("Ashen Lantern Row"));
+        var vision = Row(Vision, Book("Copper Meadow Song"), Book("Silver Thicket Fair", readAs: "Silver"));
+        var server = Row(ServerModel, NotFound("Zebra Opus Nowhere").ReadKind(WorkKind.Book));
+        var truths = Truths();
+
+        var row = EvalCombination.OfServerRead([phone, server, vision], truths).Single();
+        var shown = EvalCombination.Of([phone, server, vision], truths).Single();
+
+        row.Items.Select(i => i.ReadTitle).ShouldBe(["Zebra Opus Nowhere", .. shown.Items.Select(i => i.ReadTitle)]);
+    }
+
+    [Fact]
     public void A_server_read_cut_short_is_used_with_what_it_read()
     {
         var vision = Row(Vision, Book("Copper Meadow Song"));
@@ -156,10 +185,10 @@ public sealed class ServerFirstRowTests : IDisposable
     public void The_kind_a_server_item_was_read_as_names_its_family_when_it_found_nothing()
     {
         var vision = Row(Vision, Book("Copper Meadow Song"), T1(Matched("Velvet Orchard Road", platform: null, kind: "film", format: "dvd")));
-        var server = Row(ServerModel, NotFound("Signal Over Marsh").ReadKind(WorkKind.Tv));
+        var server = Row(ServerModel, NotFound("Signal Over Marsh").ReadKind(WorkKind.Tv), T1(Matched("Pebble Kart Rally", platform: null)));
 
         var row = ServerVision(server, vision);
 
-        row.Items.Select(i => i.ReadTitle).ShouldBe(["Signal Over Marsh", "Velvet Orchard Road"]);
+        row.Items.Select(i => i.ReadTitle).ShouldBe(["Signal Over Marsh", "Pebble Kart Rally", "Velvet Orchard Road"]);
     }
 }

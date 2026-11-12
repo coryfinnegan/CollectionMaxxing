@@ -63,7 +63,7 @@ public class PcShelfUpgradeTests
     public void A_film_and_a_tv_show_are_one_family_and_a_server_read_names_its_family_by_the_kind_it_was_read_as_when_it_found_nothing()
     {
         var decision = Decide(
-            Server(Read("Signal Over Marsh", readKind: WorkKind.Film)),
+            Server(Read("Signal Over Marsh", readKind: WorkKind.Film), Found("Pebble Kart Rally", WorkKind.Game)),
             [Found("Copper Meadow Song", WorkKind.Tv), Found("Velvet Orchard Road", WorkKind.Film), Found("Ashen Lantern Row", WorkKind.Book)]);
 
         decision.VisionKept.ShouldBe([true, true, false]);
@@ -99,6 +99,42 @@ public class PcShelfUpgradeTests
             ]);
 
         decision.VisionKept.ShouldBe([false, true, false]);
+    }
+
+    [Fact]
+    public void A_vision_read_whose_words_are_only_in_a_server_reads_best_title_is_the_same_item()
+    {
+        var decision = Decide(Server(Read("Tidings", "Quill Harbor Tides")), [Read("Quill Harbor", "Lantern Shelf Almanac")]);
+
+        decision.VisionKept.ShouldBe([false], "quill and harbor are words of the server read's release, not of what it read");
+    }
+
+    [Fact]
+    public void A_server_read_with_no_reads_leaves_the_phone_as_it_is()
+    {
+        var decision = Decide([], [Read("Copper"), Found("Velvet Orchard Road")]);
+
+        decision.PhoneStands.ShouldBeTrue();
+        decision.VisionKept.ShouldBe([true, true]);
+    }
+
+    [Fact]
+    public void A_server_read_that_named_no_release_leaves_the_phone_as_it_is_and_its_reads_still_stand()
+    {
+        var decision = Decide(Server(Read("Zebra Opus"), Read("Ashen Lantern Row")), [Read("Copper", "Copper Meadow Song"), Found("Velvet Orchard Road", WorkKind.Game)]);
+
+        decision.PhoneStands.ShouldBeTrue();
+        decision.ServerConfirmed.ShouldBe([false, false]);
+        decision.VisionKept.ShouldBe([true, true]);
+    }
+
+    [Fact]
+    public void One_server_read_that_named_a_release_is_evidence_enough()
+    {
+        var decision = Decide(Server(Read("Zebra Opus"), Found("Quill Harbor Tides")), [Read("Copper", "Copper Meadow Song")]);
+
+        decision.PhoneStands.ShouldBeFalse();
+        decision.VisionKept.ShouldBe([false]);
     }
 
     [Fact]
