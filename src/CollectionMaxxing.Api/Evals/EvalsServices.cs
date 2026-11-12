@@ -1,6 +1,7 @@
 using CollectionMaxxing.Application.Evals;
 using CollectionMaxxing.Infrastructure.Evals;
 using CollectionMaxxing.Infrastructure.GameSerials;
+using CollectionMaxxing.Infrastructure.ShelfReading;
 
 namespace CollectionMaxxing.Api.Evals;
 
@@ -18,6 +19,8 @@ public static class EvalsServices
         services.AddSingleton<IEvalResults, FileEvalResults>();
         services.AddSingleton<IEvalInputs, FileEvalInputs>(); // the phone's readings of the last run, kept for a re-ground after a deploy
         services.AddGameSerials(); // the grounder reads product codes the way /identify does (ADR-031)
+        services.AddShelfReader(); // the server reads the golden photos itself for the server_model and server_vision rows (ADR-033); off with no endpoint
+        services.AddScoped<IServerReadings, ServerReadings>();
         services.AddScoped<EvalGrounder>();
         services.AddScoped<ListGoldenPhotos.Handler>();
         services.AddScoped<GetGoldenImage.Handler>();

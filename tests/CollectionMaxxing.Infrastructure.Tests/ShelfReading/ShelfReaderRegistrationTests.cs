@@ -46,4 +46,17 @@ public sealed class ShelfReaderRegistrationTests
         result.Status.ShouldBe(ShelfReadStatus.Off);
         provider.GetRequiredService<IShelfStillMaker>().ShouldBeOfType<ShelfStillMaker>();
     }
+
+    [Fact]
+    public async Task The_readers_own_client_has_an_infinite_timeout_because_the_reader_enforces_its_own()
+    {
+        // Composed without ConfigureHttpClientDefaults, so the standard resilience handler (which also sets an infinite timeout) is not what is asserted.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddShelfReader();
+        await using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(IShelfReader)).Timeout.ShouldBe(Timeout.InfiniteTimeSpan);
+    }
 }

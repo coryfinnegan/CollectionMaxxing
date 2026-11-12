@@ -145,4 +145,36 @@ public sealed class ShelfStillMakerTests
         _maker.Make("this is not a picture"u8.ToArray()).ShouldBeNull();
         _maker.Make([]).ShouldBeNull();
     }
+
+    /// <summary>
+    /// No HEIC fixture may be downloaded and this Magick build cannot write HEIC, but it writes AVIF, which sits in the same container: the file's brand
+    /// (bytes 8 to 11 of its first box) is overwritten with "heic", so the header reads as HEIC and the allow-list entry for HEIC is what is under test.
+    /// </summary>
+    [Fact]
+    public void A_picture_whose_header_says_heic_is_turned_into_a_jpeg()
+    {
+        using var source = Drawn(64, 48);
+        var avif = Encode(source, MagickFormat.Avif);
+        avif[4..8].ShouldBe("ftyp"u8.ToArray());
+        "heic"u8.ToArray().CopyTo(avif, 8);
+
+        var still = _maker.Make(avif);
+
+        still.ShouldNotBeNull();
+        IsJpeg(still).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void A_bad_setting_refuses_the_picture_instead_of_throwing()
+    {
+        var maker = new ShelfStillMaker(new ThrowingOptions());
+        using var source = Drawn(32, 32);
+
+        maker.Make(Encode(source, MagickFormat.Png)).ShouldBeNull();
+    }
+
+    private sealed class ThrowingOptions : Microsoft.Extensions.Options.IOptions<ShelfReaderOptions>
+    {
+        public ShelfReaderOptions Value => throw new Microsoft.Extensions.Options.OptionsValidationException("ShelfReader", typeof(ShelfReaderOptions), ["MaxLongEdge must be above 0."]);
+    }
 }

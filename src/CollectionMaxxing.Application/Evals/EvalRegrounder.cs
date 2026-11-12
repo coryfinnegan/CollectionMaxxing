@@ -268,7 +268,7 @@ public sealed class EvalRegrounder(
         {
             try
             {
-                return await scoring.GroundPhotoAsync(photo.Results, memo, cancellationToken);
+                return await scoring.GroundPhotoAsync(photo.Results, memo, cancellationToken, ServerReadMode.Read);
             }
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {

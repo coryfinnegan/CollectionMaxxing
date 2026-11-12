@@ -81,6 +81,8 @@ public static class EvalRegression
     private static readonly HashSet<string> Unjudged =
     [
         EnumText.ToText(ScanEngine.FmText),
+        ServerEngines.Model,
+        ServerEngines.Vision,
     ];
 
     private static readonly HashSet<string> LowerIsBetter =
