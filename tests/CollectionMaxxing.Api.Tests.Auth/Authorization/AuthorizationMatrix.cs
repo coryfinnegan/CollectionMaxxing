@@ -257,6 +257,7 @@ public static class AuthorizationMatrix
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}/photo", LibraryRole.Editor, allowed: UnsupportedMediaType),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}/crop", LibraryRole.Editor, allowed: UnsupportedMediaType), // #345: no multipart body is sent here, so the handler answers 415
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:verify-cover", LibraryRole.Viewer, allowed: UnsupportedMediaType), // #438: no multipart body is sent here, so the handler answers 415
+        InLibrary("POST", $"{Sessions}/snaps/{{snapId:guid}}:read-shelf", LibraryRole.Viewer, allowed: Conflict), // ADR-033: this host has no shelf reader set up, so the handler answers 409 scan.reader_off before it reads a body
         InLibrary("POST", $"{Sessions}/provisionals", LibraryRole.Editor, Json, allowed: BadRequest), // #345: {} has no candidateId: the handler is reached
         InLibrary("PATCH", $"{Sessions}/candidates/{{cid:guid}}", LibraryRole.Editor, "{\"copies\":2}", allowed: Ok),
         InLibrary("POST", $"{Sessions}/candidates/{{cid:guid}}:search", LibraryRole.Editor, Json, allowed: BadRequest), // {} has no text: the handler is reached

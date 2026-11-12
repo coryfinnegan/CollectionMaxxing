@@ -1,3 +1,4 @@
+using CollectionMaxxing.Application.ShelfReading;
 using CollectionMaxxing.Domain.Catalog.Matching;
 
 namespace CollectionMaxxing.Application.Recognition;
@@ -9,6 +10,7 @@ namespace CollectionMaxxing.Application.Recognition;
 /// built-in safe default when it cannot fetch or understand it.
 /// </summary>
 /// <param name="Version">A hash of the content below; it changes whenever the content does. It is also the response's ETag.</param>
+/// <param name="ShelfReader">True when this server has a shelf reader set up (ADR-033): the phone then sends each shelf snap's picture to <c>POST /scan-sessions/{id}/snaps/{snapId}:read-shelf</c>, and only then. Set from the host's settings when the config is served, not from the config file.</param>
 public sealed record RecognitionConfig(
     string Version,
     RecognitionPrompt Prompt,
@@ -16,7 +18,8 @@ public sealed record RecognitionConfig(
     RecognitionAutoSnap AutoSnap,
     RecognitionEngine Engine,
     RecognitionSplitting Splitting,
-    RecognitionFingerprints Fingerprints);
+    RecognitionFingerprints Fingerprints,
+    bool ShelfReader = false);
 
 /// <summary>
 /// The text the phone gives the model: <see cref="Template"/>, then <see cref="OutputRules"/> after a blank line. Each is at
@@ -74,8 +77,16 @@ public interface IRecognitionSettings
 /// <summary>The recognition config use case.</summary>
 public static class GetRecognitionConfig
 {
-    public sealed class Handler(IRecognitionSettings settings)
+    public sealed class Handler(IRecognitionSettings settings, IShelfReaderSetup shelfReader)
     {
-        public RecognitionConfig Handle() => settings.Config;
+        /// <summary>
+        /// The config in force, with <see cref="RecognitionConfig.ShelfReader"/> set from the host's settings. The flag is part of what the phone
+        /// is served, so it is part of the version (the ETag): a phone that fetched the config before a reader was set up fetches it again.
+        /// </summary>
+        public RecognitionConfig Handle()
+        {
+            var config = settings.Config;
+            return shelfReader.IsSetUp ? config with { ShelfReader = true, Version = config.Version + "-shelf" } : config;
+        }
     }
 }

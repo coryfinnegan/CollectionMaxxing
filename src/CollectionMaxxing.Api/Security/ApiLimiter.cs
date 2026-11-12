@@ -69,6 +69,7 @@ public sealed class ApiLimiter : IDisposable
         nameof(SecurityOptions.LimitOptions.Search) => limits.Search,
         nameof(SecurityOptions.LimitOptions.Barcodes) => limits.Barcodes,
         nameof(SecurityOptions.LimitOptions.Identify) => limits.Identify,
+        nameof(SecurityOptions.LimitOptions.ShelfRead) => limits.ShelfRead,
         nameof(SecurityOptions.LimitOptions.Export) => limits.Export,
         nameof(SecurityOptions.LimitOptions.AuthHourly) => limits.AuthHourly,
         _ => limits.Default,

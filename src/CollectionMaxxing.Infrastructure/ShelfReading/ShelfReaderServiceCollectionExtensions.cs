@@ -30,6 +30,7 @@ public static class ShelfReaderServiceCollectionExtensions
         client.RemoveAllResilienceHandlers();
 #pragma warning restore EXTEXP0001
         services.AddSingleton<IShelfStillMaker, ShelfStillMaker>();
+        services.AddSingleton<IShelfReaderSetup, ConfiguredShelfReader>();
         return services;
     }
 }

@@ -2,6 +2,7 @@ using CollectionMaxxing.Application.Accounts;
 using CollectionMaxxing.Application.Common;
 using CollectionMaxxing.Infrastructure.Ids;
 using CollectionMaxxing.Infrastructure.Persistence;
+using CollectionMaxxing.Infrastructure.ShelfReading;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,6 +34,9 @@ public static class DependencyInjection
         });
         services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());
         services.AddScoped<IMembershipReader, MembershipReader>();
+
+        // The shelf reader (ADR-033) is shared by the scan endpoint and the evals, so it is registered once, here; off with no ShelfReader:Endpoint.
+        services.AddShelfReader();
 
         services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database", tags: ["ready"]);
         return services;

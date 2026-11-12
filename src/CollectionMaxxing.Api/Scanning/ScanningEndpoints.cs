@@ -67,6 +67,21 @@ public static class ScanningEndpoints
             .RequireScanSessionRole(LibraryRole.Viewer)
             .WithRateLimitGroup(Identify.IdentifyBody.RateLimit);
 
+        // The shelf picture of a snap identify has answered, read by the server's own reader (ADR-033). Multipart, read from the stream by hand like
+        // the photo upload, never stored (see ShelfRead.ShelfReadEndpoint). One read at a time; a busy reader is a 503 with Retry-After.
+        sessions.MapPost("/{id:guid}/snaps/{snapId:guid}:read-shelf", ShelfRead.ShelfReadEndpoint.HandleAsync)
+            .WithName("ReadShelfSnap").WithTags("Scanning")
+            .Accepts<ShelfRead.ShelfReadForm>("multipart/form-data")
+            .Produces<CandidatesDto>()
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .RequireScanSessionRole(LibraryRole.Viewer)
+            .WithRateLimitGroup(RateLimitGroup.ShelfRead)
+            .WithRequestTimeout(Security.SecurityHeaders.UploadTimeoutPolicy); // a queued read plus a slow link takes longer than the usual minute
+
         // The feature-print distances the phone measured for a close call; the server re-scores. The body is read inside the
         // handler, after the session filters, and bounded; see ArtworkEndpoint.
         sessions.MapPost("/{id:guid}/candidates/{cid:guid}:art", Artwork.ArtworkEndpoint.HandleAsync)

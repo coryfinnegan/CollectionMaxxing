@@ -19,7 +19,7 @@ public static class EvalsServices
         services.AddSingleton<IEvalResults, FileEvalResults>();
         services.AddSingleton<IEvalInputs, FileEvalInputs>(); // the phone's readings of the last run, kept for a re-ground after a deploy
         services.AddGameSerials(); // the grounder reads product codes the way /identify does (ADR-031)
-        services.AddShelfReader(); // the server reads the golden photos itself for the server_model and server_vision rows (ADR-033); off with no endpoint
+        // The server reads the golden photos itself for the server_model and server_vision rows (ADR-033) with the shelf reader AddInfrastructure() registers; off with no endpoint.
         services.AddScoped<IServerReadings, ServerReadings>();
         services.AddScoped<EvalGrounder>();
         services.AddScoped<ListGoldenPhotos.Handler>();

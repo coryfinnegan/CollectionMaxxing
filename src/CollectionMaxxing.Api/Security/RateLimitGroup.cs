@@ -17,6 +17,8 @@ public sealed record RateLimitGroup(string Name, Func<HttpContext, ValueTask<int
 
     public static RateLimitGroup Barcodes { get; } = new(nameof(SecurityOptions.LimitOptions.Barcodes));
 
+    public static RateLimitGroup ShelfRead { get; } = new(nameof(SecurityOptions.LimitOptions.ShelfRead));
+
     public static RateLimitGroup Export { get; } = new(nameof(SecurityOptions.LimitOptions.Export));
 
     public static RateLimitGroup AuthHourly { get; } = new(nameof(SecurityOptions.LimitOptions.AuthHourly));

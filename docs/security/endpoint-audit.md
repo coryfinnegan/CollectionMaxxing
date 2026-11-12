@@ -125,6 +125,7 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | POST | `/api/v1/scan-sessions/{id:guid}/commit:undo` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | GET | `/api/v1/scan-sessions/{id:guid}/events` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | POST | `/api/v1/scan-sessions/{id:guid}/identify` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
+| POST | `/api/v1/scan-sessions/{id:guid}/snaps/{snapId:guid}:read-shelf` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads; the picture is read in memory and never stored |
 | GET | `/health/live` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
 | GET | `/health/ready` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
 | GET | `/health/version` | anonymous (platform plumbing) | everyone | N (NotInMatrix) | n/a (no data) | none (no data) |
