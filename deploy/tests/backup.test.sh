@@ -21,11 +21,13 @@ check() { # name expected actual
 FAKE_DUMP_FAIL=0
 curl_calls="$tmp/curl.calls"
 FAKE_DUMP_CALLS=0
+FAKE_DUMP_NEEDS_PG=0
 FAKE_DUMP_FAIL_FIRST=0   # the first N dumps fail (Postgres still starting), later ones work
 pg_dump() {
   FAKE_DUMP_CALLS=$((FAKE_DUMP_CALLS + 1))
   [[ "$FAKE_DUMP_FAIL" == 1 ]] && return 1
   ((FAKE_DUMP_CALLS <= FAKE_DUMP_FAIL_FIRST)) && return 1
+  ((FAKE_DUMP_NEEDS_PG == 1 && FAKE_PG_CHECKS <= FAKE_PG_REFUSE_FIRST)) && return 1   # Postgres has not answered yet
   local out="" ; while (($# > 0)); do [[ "$1" == "-f" ]] && out="$2"; shift; done
   echo "fake dump" >"$out"
 }
@@ -35,10 +37,18 @@ curl() { echo "$*" >>"$curl_calls"; return 0; }
 FAKE_PG_READY=1
 FAKE_PG_REFUSE_FIRST=0
 FAKE_PG_CHECKS=0
-pg_isready() { FAKE_PG_CHECKS=$((FAKE_PG_CHECKS + 1)); ((FAKE_PG_READY == 1 && FAKE_PG_CHECKS > FAKE_PG_REFUSE_FIRST)); }
+pg_isready() { FAKE_PG_CHECKS=$((FAKE_PG_CHECKS + 1)); ((FAKE_PG_CHECKS > 500)) && exit 99; ((FAKE_PG_READY == 1 && FAKE_PG_CHECKS > FAKE_PG_REFUSE_FIRST)); }
 # The waits sleep through cm_sleep; the tests record the request and never really wait.
 sleep_log="$tmp/cm-sleep.log"
-cm_sleep() { echo "$1" >>"$sleep_log"; }
+# More than 60 sleeps (a good run needs at most 39) is a runaway loop: the guarded subshell ends with 99 (see guard) instead of hanging the suite.
+cm_sleep() { echo "$1" >>"$sleep_log"; (($(wc -l <"$sleep_log") > 60)) && exit 99; return 0; }
+# A real sleep (one that does not go through cm_sleep) is recorded and fails a check below; it never waits.
+sleep() { echo "$*" >>"$tmp/real-sleep.log"; }
+guard() { # guard <command...>: runs it in a subshell (a runaway ends it with 99); the call counters come back; GRC is its result
+  ( trap 'echo "$FAKE_DUMP_CALLS $FAKE_PG_CHECKS" >"$tmp/counters"' EXIT; "$@" )
+  GRC=$?
+  read -r FAKE_DUMP_CALLS FAKE_PG_CHECKS <"$tmp/counters"
+}
 sleeps() { wc -l <"$sleep_log" 2>/dev/null | tr -d ' '; }
 # psql answers the three questions the manifest asks: table counts, newest migration id, and nothing else.
 # It never returns row data (a real psql could; the manifest code must only ever ask for counts).
@@ -255,7 +265,7 @@ BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" CM_HEARTBEAT_URL="https://hc.
 check "catch-up: a fresh newest backup means no backup at start" "1" "$(cdump_count)"
 check "catch-up: ...and no heartbeat" "0" "$(wc -l <"$curl_calls" | tr -d ' ')"
 rm -rf "$catch_dir"; mkdir -p "$catch_dir/src"
-FAKE_DUMP_FAIL=1 BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" cm_catch_up '0 3 * * *' >"$tmp/catch.out" 2>&1; rc=$?
+FAKE_DUMP_FAIL=1 BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" guard cm_catch_up '0 3 * * *' >"$tmp/catch.out" 2>&1; rc=$GRC
 check "catch-up: a failed catch-up does not stop the daemon (returns 0)" "0" "$rc"
 check "catch-up: ...it logs the failure" "true" "$(grep -q 'catch-up backup failed' "$tmp/catch.out" && echo true || echo false)"
 FAKE_DUMP_FAIL=0
@@ -265,7 +275,7 @@ rcu() { # rcu <name> : a catch-up in a fresh stale folder; output in $tmp/catch.
   catch_dir="$tmp/catch-$1"; rm -rf "$catch_dir"; mkdir -p "$catch_dir/src"; echo cover >"$catch_dir/src/a.jpg"
   mkbackup "$catch_dir" "$(ago $((3 * 86400)))"
   : >"$sleep_log"; FAKE_DUMP_CALLS=0; FAKE_PG_CHECKS=0
-  BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" cm_catch_up '0 3 * * *' >"$tmp/catch.out" 2>&1
+  BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" guard cm_catch_up '0 3 * * *' >"$tmp/catch.out" 2>&1
 }
 has() { grep -q -- "$1" "$tmp/catch.out" && echo true || echo false; }
 dumps_in() { ls -1 "$catch_dir/db" 2>/dev/null | grep -c '\.dump$' || true; }
@@ -283,6 +293,7 @@ check "wait: ...and no waiting line in the log" "false" "$(has 'waiting for Post
 
 FAKE_PG_READY=0; FAKE_DUMP_FAIL=1; rcu never
 check "wait: Postgres never answers: the checks are bounded (36 checks, 35 sleeps in the wait)" "36" "$FAKE_PG_CHECKS"
+check "wait: ...and it ended by itself (no runaway)" "0" "$GRC"
 check "wait: ...and says it carried on" "true" "$(has 'did not answer after 36 checks')"
 check "wait: ...then the backup is tried 5 times, no more" "5" "$FAKE_DUMP_CALLS"
 check "wait: ...with a sleep between every check and every try (35 + 4)" "39" "$(sleeps)"
@@ -296,10 +307,10 @@ check "retry: ...each failed try logged one line, and no give-up line" "2,false"
 FAKE_DUMP_FAIL_FIRST=0
 
 FAKE_DUMP_FAIL=1; rcu fail
-check "retry: a catch-up that always fails is tried 5 times and no more" "5" "$FAKE_DUMP_CALLS"
+check "retry: a catch-up that always fails is tried 5 times and no more" "5,0" "$FAKE_DUMP_CALLS,$GRC"
 check "retry: ...4 pauses between the 5 tries" "4" "$(sleeps)"
 check "retry: ...no backup was kept" "1" "$(dumps_in)"
-check "retry: ...the catch-up still returns 0 so the daemon goes on to the schedule" "0" "$(BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" cm_catch_up '0 3 * * *' >/dev/null 2>&1; echo $?)"
+check "retry: ...the catch-up still returns 0 so the daemon goes on to the schedule" "0" "$GRC"
 FAKE_DUMP_FAIL=0
 
 # an up-to-date backup at start does nothing: no wait, no sleep, no backup
@@ -312,13 +323,47 @@ FAKE_PG_READY=1
 # a scheduled backup uses the same bounded retry
 catch_dir="$tmp/catch-sched"; rm -rf "$catch_dir"; mkdir -p "$catch_dir/src"; echo cover >"$catch_dir/src/a.jpg"
 : >"$sleep_log"; FAKE_DUMP_CALLS=0; FAKE_DUMP_FAIL_FIRST=1
-BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" cm_backup_with_retry >/dev/null 2>&1; rc=$?
-check "retry: a scheduled backup that fails once is retried and works (one backup, one pause)" "0,2,1,$(dumps_in)" "$rc,$FAKE_DUMP_CALLS,$(sleeps),$(dumps_in)"
+BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" guard cm_backup_with_retry >/dev/null 2>&1; rc=$GRC
+check "retry: a scheduled backup that fails once is retried and works (one backup, one pause)" "0,2,1,1" "$rc,$FAKE_DUMP_CALLS,$(sleeps),$(dumps_in)"
 FAKE_DUMP_FAIL_FIRST=0; FAKE_DUMP_FAIL=1; : >"$sleep_log"; FAKE_DUMP_CALLS=0
-BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" cm_backup_with_retry >/dev/null 2>&1; rc=$?
+BACKUP_DIR="$catch_dir" FILES_DIR="$catch_dir/src" guard cm_backup_with_retry >/dev/null 2>&1; rc=$GRC
 FAKE_DUMP_FAIL=0
 check "retry: a scheduled backup that always fails stops after 5 tries and fails" "1,5" "$rc,$FAKE_DUMP_CALLS"
 check "retry: the daemon loop uses it (backup.sh)" "true" "$(grep -q 'cm_backup_with_retry ||' "$here/../backup/backup.sh" && echo true || echo false)"
+
+# The wait comes BEFORE the dump: Postgres refuses 3 checks and the dump would fail if it ran now.
+FAKE_PG_REFUSE_FIRST=3; FAKE_DUMP_NEEDS_PG=1; rcu order
+check "wait: the dump is not tried until Postgres has answered (one dump call, it works)" "1,2" "$FAKE_DUMP_CALLS,$(dumps_in)"
+FAKE_PG_REFUSE_FIRST=0; FAKE_DUMP_NEEDS_PG=0
+
+# Settings: a bad value falls back to the default (bounded, no crash); a good one is honoured.
+for bad in 5x 1.5 abc "" 0 -1; do
+  FAKE_DUMP_FAIL=1; CM_BACKUP_TRIES="$bad" rcu bad
+  check "settings: CM_BACKUP_TRIES='$bad' gives the default 5 tries, no runaway, no crash" "5,0" "$FAKE_DUMP_CALLS,$GRC"
+done
+for bad in 5x 1.5 abc -1; do
+  CM_BACKUP_RETRY_SECONDS="$bad" rcu bad
+  check "settings: CM_BACKUP_RETRY_SECONDS='$bad' gives the default 60 s pause" "60" "$(head -1 "$sleep_log")"
+  check "settings: ...and logs one line saying so" "1" "$(grep -c "ignoring CM_BACKUP_RETRY_SECONDS='$bad'" "$tmp/catch.out")"
+done
+FAKE_PG_READY=0
+for bad in 5x 1.5 abc 0 -1; do
+  CM_PG_WAIT_TRIES="$bad" rcu bad
+  check "settings: CM_PG_WAIT_TRIES='$bad' gives the default 36 checks" "36,0" "$FAKE_PG_CHECKS,$GRC"
+done
+CM_PG_WAIT_STEP=abc rcu bad
+check "settings: CM_PG_WAIT_STEP='abc' gives the default 5 s step" "5" "$(head -1 "$sleep_log")"
+FAKE_PG_READY=1
+CM_BACKUP_TRIES=2 rcu good
+check "settings: CM_BACKUP_TRIES=2 is honoured (2 tries)" "2" "$FAKE_DUMP_CALLS"
+CM_BACKUP_RETRY_SECONDS=7 rcu good
+check "settings: CM_BACKUP_RETRY_SECONDS=7 is honoured" "7" "$(head -1 "$sleep_log")"
+CM_BACKUP_RETRY_SECONDS=0 rcu good
+check "settings: CM_BACKUP_RETRY_SECONDS=0 is allowed" "0" "$(head -1 "$sleep_log")"
+FAKE_PG_READY=0; CM_PG_WAIT_TRIES=4 CM_PG_WAIT_STEP=2 rcu good
+check "settings: CM_PG_WAIT_TRIES=4 and CM_PG_WAIT_STEP=2 are honoured" "4,2" "$FAKE_PG_CHECKS,$(head -1 "$sleep_log")"
+FAKE_PG_READY=1; FAKE_DUMP_FAIL=0
+check "no wait or retry ever used the real sleep" "none" "$([[ -s "$tmp/real-sleep.log" ]] && cat "$tmp/real-sleep.log" || echo none)"
 
 # ---- the health check ----------------------------------------------------------------------------------------------
 hdir="$tmp/health"

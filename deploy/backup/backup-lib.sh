@@ -304,11 +304,25 @@ cm_backup_due() {
 # cm_sleep SECONDS: the one place the waiting below sleeps, so the tests can replace it and never really wait.
 cm_sleep() { sleep "$1"; }
 
+# cm_int_setting NAME DEFAULT MIN: prints the environment variable NAME as a whole number of at least MIN. An unset or empty
+# variable gives DEFAULT quietly; anything else (5x, 1.5, abc, -1, below MIN) logs one line and gives DEFAULT, so a typo
+# can never make a loop run for ever or stop the daemon. The numbers are fixed in the deployment; the variables exist for the tests.
+cm_int_setting() {
+  local name="$1" default="$2" min="$3" value
+  value="${!name-}"
+  if [[ -z "$value" ]]; then echo "$default"; return 0; fi
+  if [[ "$value" =~ ^[0-9]{1,6}$ ]] && ((10#$value >= min)); then echo "$((10#$value))"; return 0; fi
+  cm_log "ignoring $name='$value' (needs a whole number of at least $min); using $default" >&2
+  echo "$default"
+}
+
 # cm_wait_for_postgres: waits until Postgres accepts connections: at most CM_PG_WAIT_TRIES checks (default 36), CM_PG_WAIT_STEP
 # seconds apart (default 5), so about 3 minutes. Logs one line when it had to wait. Returns 1 if Postgres never answered
 # (the caller carries on: the backup then fails and the retry below takes over).
 cm_wait_for_postgres() {
-  local tries="${CM_PG_WAIT_TRIES:-36}" step="${CM_PG_WAIT_STEP:-5}" n=1
+  local tries step n=1
+  tries="$(cm_int_setting CM_PG_WAIT_TRIES 36 1)"
+  step="$(cm_int_setting CM_PG_WAIT_STEP 5 0)"
   while ! pg_isready -q -t 5; do
     if ((n >= tries)); then
       cm_log "Postgres did not answer after ${tries} checks; carrying on anyway"
@@ -325,7 +339,9 @@ cm_wait_for_postgres() {
 # cm_backup_with_retry: cm_backup_run, tried at most CM_BACKUP_TRIES times (default 5) with CM_BACKUP_RETRY_SECONDS (default
 # 60) between tries. The first success stops it, so one schedule never makes two backups. Fails after the last try.
 cm_backup_with_retry() {
-  local tries="${CM_BACKUP_TRIES:-5}" pause="${CM_BACKUP_RETRY_SECONDS:-60}" n=1
+  local tries pause n=1
+  tries="$(cm_int_setting CM_BACKUP_TRIES 5 1)"
+  pause="$(cm_int_setting CM_BACKUP_RETRY_SECONDS 60 0)"
   while true; do
     cm_backup_run && return 0
     ((n >= tries)) && return 1
