@@ -212,6 +212,75 @@ public class ShelfReadServerFirstTests(ApiFixture api) : ShelfReadTest(api)
         after.Select(r => (r.Id, r.Version)).ShouldBe(between.Select(r => (r.Id, r.Version)));
     }
 
+    /// <summary>The game provider answers only once <paramref name="slow"/> says so; until then every ask runs out of time.</summary>
+    private void SlowGames(Func<bool> slow, params string[] titles)
+    {
+        Options.ResolveBudget = TimeSpan.FromMilliseconds(300);
+        foreach (var title in titles)
+        {
+            Games.Results.Add(ScanData.Game(title, "Nintendo 64", 1998, "g-" + title.Replace(' ', '-')));
+        }
+
+        Games.Behaviour = async ct =>
+        {
+            if (slow())
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+        };
+    }
+
+    [Fact]
+    public async Task A_server_row_the_job_finishes_with_a_release_no_vision_row_names_stays_for_the_person_with_auto_add_on()
+    {
+        var slow = true;
+        SlowGames(() => slow, "Zorblax Harbor Saga");
+        var (library, editor, sessionId) = await ArrangeAsync(OptIn(), Meadow);
+        using var _1 = editor;
+        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneRead(Meadow));
+        var itemsBefore = await CountItemsAsync(library.Id);
+        Reader.Answer = _ => ScriptedReader.Found("Zorblax Harbor Saga");
+        var added = await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
+        Resolution(added.Single()).ShouldBe("pending");
+
+        slow = false;
+        await RunNextJobAsync();
+
+        var row = (await RowsAsync(sessionId)).Single(r => r.Source == CandidateSource.PictureServerModel);
+        row.Resolution.ShouldBe(CandidateResolution.Matched);
+        row.Decision.ShouldBe(CandidateDecision.Undecided);
+        row.CreatedItemId.ShouldBeNull();
+        (await CountItemsAsync(library.Id)).ShouldBe(itemsBefore, "only the server read it: the person ticks it");
+    }
+
+    [Fact]
+    public async Task A_server_row_the_job_finishes_with_the_release_a_vision_row_shows_is_a_repeat_and_the_item_is_added_once()
+    {
+        var slow = true;
+        SlowGames(() => slow, "Zorblax Lantern Saga");
+        var (library, editor, sessionId) = await ArrangeAsync(OptIn());
+        using var _1 = editor;
+        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneRead("Zorblax Lantern Saga"));
+        Reader.Answer = _ => ScriptedReader.Found("Zorblax Lantern Saga");
+        var added = await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
+        Resolution(added.Single()).ShouldBe("pending", "neither engine's read has an answer yet, so the server's row is added");
+
+        slow = false;
+        await RunNextJobAsync(); // the phone's row: two engines read it, it is the row and is added by itself
+        await RunNextJobAsync(); // the server's row
+
+        var rows = await RowsAsync(sessionId);
+        var phone = rows.Single(r => r.Source != CandidateSource.PictureServerModel);
+        var server = rows.Single(r => r.Source == CandidateSource.PictureServerModel);
+        phone.CreatedItemId.ShouldNotBeNull();
+        server.Resolution.ShouldNotBe(CandidateResolution.Pending);
+        server.Decision.ShouldBe(CandidateDecision.Rejected);
+        server.CreatedItemId.ShouldBeNull();
+        var shown = (await GetSessionAsync(editor, sessionId)).GetProperty("candidates").EnumerateArray().Single(c => Id(c) == server.Id);
+        SkipReason(shown).ShouldBe("repeat");
+        (await CountItemsAsync(library.Id)).ShouldBe(1, "one item for the release, never a second for the server's read");
+    }
+
     [Fact]
     public async Task A_read_that_could_not_be_made_changes_nothing()
     {

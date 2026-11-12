@@ -11,6 +11,9 @@ namespace CollectionMaxxing.Api.Tests.Scanning.ShelfRead;
 // The answers of POST …/snaps/{snapId}:read-shelf, one for each case of the table in the issue. A fake reader stands in for the model; pictures are drawn for the test.
 public class ShelfReadAnswersTests(ApiFixture api) : ShelfReadTest(api)
 {
+    /// <summary>The most bytes the lines part may hold (<c>ShelfReadEndpoint.MaxLinesBytes</c>).</summary>
+    private const int LinesCap = 256 * 1024;
+
     private async Task<(HttpClient Client, Guid SessionId, Guid SnapId)> ArrangeAsync(string shotKind = "shelf_segment")
     {
         var library = await CreateLibraryAsync();
@@ -224,6 +227,80 @@ public class ShelfReadAnswersTests(ApiFixture api) : ShelfReadTest(api)
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         (await ProblemCodeAsync(response)).ShouldBe("scan.shelf_lines_invalid");
         Reader.Calls.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Lines_over_the_size_cap_are_400()
+    {
+        var (client, sessionId, snap) = await ArrangeAsync();
+        using var _ = client;
+        var line = new string('x', 1000);
+        var lines = Enumerable.Repeat(line, (LinesCap / line.Length) + 2).ToArray(); // a valid list, just too long
+
+        var response = await ReadShelfAsync(client, sessionId, snap, lines);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ProblemCodeAsync(response)).ShouldBe("scan.shelf_lines_invalid");
+        Reader.Calls.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Lines_just_under_the_size_cap_are_read()
+    {
+        var (client, sessionId, snap) = await ArrangeAsync();
+        using var _ = client;
+        var line = new string('x', 1000);
+        var lines = Enumerable.Repeat(line, (LinesCap / (line.Length + 3)) - 1).ToArray();
+
+        (await ReadShelfAsync(client, sessionId, snap, lines)).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Two_requests_for_the_same_snap_at_once_store_the_rows_once_and_answer_the_same_ids()
+    {
+        Settings["ShelfReader:QueueWaitSeconds"] = "30";
+        var (client, sessionId, snap) = await ArrangeAsync();
+        using var _ = client;
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Reader.Hold = (call, token) => call == 1 ? release.Task.WaitAsync(token) : Task.CompletedTask;
+        var first = ReadShelfAsync(client, sessionId, snap);
+        var until = DateTime.UtcNow.AddSeconds(20);
+        while (Reader.Calls == 0)
+        {
+            DateTime.UtcNow.ShouldBeLessThan(until, "the first read never reached the reader");
+            await Task.Delay(20);
+        }
+
+        var second = ReadShelfAsync(client, sessionId, snap);
+        await Task.Delay(300);
+        release.SetResult();
+
+        var one = await CandidatesOfAsync(await first.WaitAsync(TimeSpan.FromSeconds(20)));
+        var two = await CandidatesOfAsync(await second.WaitAsync(TimeSpan.FromSeconds(20)));
+
+        one.Count.ShouldBe(1);
+        two.Select(Id).ShouldBe(one.Select(Id));
+        Reader.Calls.ShouldBeInRange(1, 2, "the twin may read too while the first grounds its finds; only one keeps rows");
+        (await CountCandidatesAsync(sessionId)).ShouldBe(2, "the phone's row and the server's, once");
+    }
+
+    [Fact]
+    public async Task The_request_body_is_never_buffered_to_a_file_while_the_reader_reads()
+    {
+        AddServices(services => services.AddHttpContextAccessor());
+        var (client, sessionId, snap) = await ArrangeAsync();
+        using var _ = client;
+        Type? bodyType = null;
+        Reader.Hold = (_, _) =>
+        {
+            bodyType = Factory.Services.GetRequiredService<Microsoft.AspNetCore.Http.IHttpContextAccessor>().HttpContext?.Request.Body.GetType();
+            return Task.CompletedTask;
+        };
+
+        (await ReadShelfAsync(client, sessionId, snap)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        bodyType.ShouldNotBeNull("the read ran inside the request");
+        bodyType.ShouldNotBe(typeof(Microsoft.AspNetCore.WebUtilities.FileBufferingReadStream));
     }
 
     [Fact]

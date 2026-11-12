@@ -14,6 +14,7 @@ export const SKIP_REASON_COPY: Record<NonNullable<SkipReason> | 'person', string
   unfound_spine: 'Nothing in the catalog matched',
   owned: 'Already in your library',
   wishlist: 'On your wishlist',
+  server_did_not_see: 'A second look left it out', // the server's own read of the shelf (#814); #809 owns the final words
   person: 'You skipped it',
 };
 
