@@ -111,19 +111,88 @@ public static class EvalCombination
     }
 
     /// <summary>
-    /// The same combination for the server's own reader (<see cref="ServerEngines.Vision"/>): the <see cref="ServerEngines.Model"/> row stands where the
-    /// <c>apple_model</c> row does, with Vision's row, and the rule is used unchanged. Empty when no photo has a server row.
+    /// What the scanner shows once the server's own reader has read a photo (<see cref="ServerEngines.Vision"/>), for every photo with a
+    /// <see cref="ServerEngines.Model"/> row, a <c>vision_pipeline</c> row and a truth file. Empty when no photo has a server row.
     /// </summary>
+    /// <remarks>
+    /// On a shelf shot it is <see cref="PcShelfUpgrade"/>'s rule, the one the <c>:read-shelf</c> endpoint applies to the snap's rows: the
+    /// server's items (the ones grounded with the shelf's printed kind lent, as on the model rows) all stand, in order, then the Vision
+    /// items the rule keeps; the phone model's reads (<c>apple_model</c>) are left out. A server item is confirmed only when a Vision item
+    /// names the same release; a kept Vision item is unconfirmed. When the server's read failed (an error row: it was neither answered nor
+    /// cut short) nothing changes on the phone, so the row is the <c>apple_vision</c> row of the photo (Vision's reading after the failure
+    /// when the photo has no <c>apple_model</c> row). A single cover or loose item is the server's own row whole, as the combination makes it.
+    /// </remarks>
     public static IReadOnlyList<GroundedPhoto> OfServerRead(IReadOnlyList<GroundedPhoto> photos, IReadOnlyDictionary<string, TruthEntry> truths)
     {
-        var asModel = photos.Where(p => p.Engine == ServerEngines.Model).Select(p => p with { Engine = M3Gate.Engine }).ToList();
-        if (asModel.Count == 0)
+        var servers = photos.Where(p => p.Engine == ServerEngines.Model).ToList();
+        if (servers.Count == 0)
         {
             return [];
         }
 
-        return [.. Of([.. asModel, .. photos.Where(p => p.Engine == M3Gate.VisionEngine)], truths).Select(c => c with { Engine = ServerEngines.Vision })];
+        var visionRows = new Dictionary<string, GroundedPhoto>(StringComparer.Ordinal);
+        foreach (var photo in photos.Where(p => p.Engine == M3Gate.VisionEngine))
+        {
+            visionRows.TryAdd(photo.PhotoId, photo);
+        }
+
+        var phoneRows = new Dictionary<string, GroundedPhoto>(StringComparer.Ordinal);
+        foreach (var photo in Of(photos, truths))
+        {
+            phoneRows.TryAdd(photo.PhotoId, photo);
+        }
+
+        var rows = new List<GroundedPhoto>();
+        foreach (var server in servers)
+        {
+            if (!truths.TryGetValue(server.PhotoId, out var truth) || !visionRows.TryGetValue(server.PhotoId, out var vision))
+            {
+                continue;
+            }
+
+            var row = !IsShelfShot(truth) ? Combine(server, vision, shelf: false)
+                : server.Outcome != Ok ? phoneRows.GetValueOrDefault(server.PhotoId) ?? Combine(server, vision, shelf: true)
+                : ServerFirst(server, vision);
+            rows.Add(row with { Engine = ServerEngines.Vision, TimedOut = null }); // the server_model row reports its own timeouts
+        }
+
+        return rows;
     }
+
+    /// <summary>
+    /// The shelf once the server has read it (<see cref="PcShelfUpgrade"/>): the server's items in order, unconfirmed unless a Vision item
+    /// names the same release, then the Vision items the rule keeps, unconfirmed. When Vision did not answer there are no Vision items.
+    /// The rest of the row (the time both reads took, the counts) is the server's row's, with Vision's thermal state, as the combination
+    /// reports it.
+    /// </summary>
+    private static GroundedPhoto ServerFirst(GroundedPhoto server, GroundedPhoto vision)
+    {
+        var serverItems = server.ItemsLentPrint ?? server.Items;
+        var visionItems = vision.Outcome == Ok ? vision.Items : [];
+        var decision = PcShelfUpgrade.Decide([.. serverItems.Select(ShelfReadOf)], [.. visionItems.Select(ShelfReadOf)]);
+        var items = new List<GroundedItem>(serverItems.Count + visionItems.Count);
+        items.AddRange(serverItems.Select((item, i) => item with { Unconfirmed = !decision.ServerConfirmed[i] }));
+        items.AddRange(visionItems.Where((_, i) => decision.VisionKept[i]).Select(item => item with { Unconfirmed = true }));
+        return server with
+        {
+            Items = items,
+            LatencyMs = server.LatencyMs + vision.LatencyMs,
+            FirstItemMs = FirstItemOf(server, vision, vision.Outcome == Ok),
+            ThermalState = vision.ThermalState,
+            SkippedItems = null,
+            SkippedItemsLentPrint = null,
+            SkippedSegmentsLentPrint = null,
+            ItemsLentPrint = null,
+        };
+    }
+
+    /// <summary>A grounded item as <see cref="PcShelfUpgrade"/> reads it: the text it was searched with, the kind it was read as, and its best release.</summary>
+    private static PcShelfUpgrade.ShelfRead ShelfReadOf(GroundedItem item) => new(
+        item.ReadTitle,
+        EnumText.ParseOrNull<WorkKind>(item.Read?.Kind),
+        item.Best?.Title,
+        item.Best?.Year,
+        EnumText.ParseOrNull<WorkKind>(item.Best?.Kind));
 
     /// <summary>The scanner combines the two engines on a shelf shot only: a single cover or a loose item is read by the model alone.</summary>
     private static bool IsShelfShot(TruthEntry truth) =>
@@ -277,7 +346,7 @@ public static class EvalCombination
 
     /// <summary>The shelf's own print: every word of every line Vision read on the shot; null when it sent no lines, so there is none to check against.</summary>
     private static IReadOnlySet<string>? PrintedOf(GroundedPhoto vision) =>
-        PcShelfUpgrade.PrintOf(vision.OcrLines?.Select(line => line.Text));
+        vision.OcrLines is { Count: > 0 } lines ? PrintSupport.PrintedWords(lines.Select(line => line.Text)) : null;
 
     /// <summary>
     /// The model's reads that stand beside Vision's: the ones the app would send. A read that is the same release as a Vision read
@@ -286,9 +355,14 @@ public static class EvalCombination
     /// </summary>
     private static List<GroundedItem> StandingModelReads(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model, IReadOnlySet<string>? printed) => model
         .Where(read => read.Box is null
-            ? PcShelfUpgrade.Stands(KeyOf(read), read.ReadTitle, vision.Select(KeyOf), printed) // a read with no place, as every server read is: the rule the endpoint shares
+            ? StandsWithNoPlace(read, vision, printed)
             : StandsAtItsPlace(read, vision, printed))
         .ToList();
+
+    /// <summary>A model read with no place: not the release a Vision read already has, and backed by the print when there is one.</summary>
+    private static bool StandsWithNoPlace(GroundedItem read, List<GroundedItem> vision, IReadOnlySet<string>? printed) =>
+        !(KeyOf(read) is { } key && vision.Any(visionItem => KeyOf(visionItem) == key))
+        && (printed is null || PrintSupport.Supports(read.ReadTitle, printed));
 
     /// <summary>A model read with a place of its own: not a repeat of a Vision read that has none, and backed by the print unless it is at a Vision item's place.</summary>
     private static bool StandsAtItsPlace(GroundedItem read, List<GroundedItem> vision, IReadOnlySet<string>? printed) =>
