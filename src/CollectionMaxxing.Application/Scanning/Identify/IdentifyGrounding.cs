@@ -329,7 +329,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// (<see cref="ReadFacts.Text"/>, <see cref="ReadFacts.Lines"/>: the server's shelf reader sends neither, every phone read sends its
     /// text) is the reader's answer, not a line of print with stray words at its ends: its leading word is the title's own, and a franchise
     /// word is the one that tells the right film from the wrong one ("HIGHLANDER THE FINAL DIMENSION" found "The Final Destination" without
-    /// it, #815). An author's name in front of the title ("SARAH J. CROWN OF MIDNIGHT") is carried by the find's creator. Null (no test,
+    /// it). An author's name in front of the title ("SARAH J. CROWN OF MIDNIGHT") is carried by the find's creator. Null (no test,
     /// the plain rule) for a read the phone sent, whose leading word may be print the spine carries beside its title.
     /// </summary>
     private static Func<BarcodeResolution, LocalPool, bool>? CarriesDroppedLeadingWords(ReadFacts facts, TrimmedSpan span) =>

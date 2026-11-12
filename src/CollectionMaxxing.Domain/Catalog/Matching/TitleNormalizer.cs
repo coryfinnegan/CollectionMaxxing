@@ -124,7 +124,7 @@ public static class TitleNormalizer
 
     /// <summary>
     /// What a book's title is worth when it is the part of the read after the colon: "Crescent City: House of Earth and Blood" read
-    /// off a cover against the book "House of Earth and Blood", where the part before the colon is the series (#815). A hair above
+    /// off a cover against the book "House of Earth and Blood", where the part before the colon is the series. A hair above
     /// <see cref="MainTitleCredit"/>, so that of a book titled with the series alone and one titled with what follows it, the latter
     /// ranks first; under 0.845 for the same reason as the main title, so it never matches on title and kind alone. The scorer gives
     /// it to books only (<see cref="MatchScorer"/>): a film's catalogue title carries its franchise.

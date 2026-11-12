@@ -52,7 +52,7 @@ public static class PossessivePrefix
         var end = EndOfName(words);
         var left = words.Length - (end + 1);
 
-        // A possessive that starts an edition phrase ("DIRECTOR'S CUT", "COLLECTOR'S EDITION") is no person's name (#815).
+        // A possessive that starts an edition phrase ("DIRECTOR'S CUT", "COLLECTOR'S EDITION") is no person's name.
         if (end < 0 || left == 0 || EditionPhrases.StartsWithAPhrase(words[end..]))
         {
             return null;

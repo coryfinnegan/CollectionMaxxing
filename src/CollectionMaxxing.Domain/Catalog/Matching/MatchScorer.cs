@@ -192,7 +192,7 @@ public static class MatchScorer
                 }
 
                 // A book read as "Series: Title" is the book titled with what follows the colon: it ranks above the release titled
-                // with the series alone, which the main-title credit gives a hair less (#815). Books only: a film's catalogue title
+                // with the series alone, which the main-title credit gives a hair less. Books only: a film's catalogue title
                 // carries its franchise, and the part after its colon alone is some other film.
                 if (release.Kind == WorkKind.Book)
                 {
@@ -314,7 +314,7 @@ public static class MatchScorer
 
         var titles = new TitleCache(read.Title);
         var answerable = AnswerableIn(read, releases, titles);
-        // Of releases tied on score, the one whose title is closer to the read's own words goes first (#815: the show "Kimba the White
+        // Of releases tied on score, the one whose title is closer to the read's own words goes first (the show "Kimba the White
         // Lion" level with the film "Kimba the White Lion: Symphonic Poem" for "Kimba the Lion"); a tie on that too keeps the input order.
         var ranked = releases
             .Select(release => ScoreCore(read, release, profile, answerable, titles))

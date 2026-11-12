@@ -9,7 +9,7 @@ public sealed record EditionSplit(string Title, string Phrase);
 /// The edition phrases a case or a cover prints after its title ("HIGHLANDER: DIRECTOR'S CUT", "... 25th Anniversary Edition",
 /// "... Widescreen"). They say which release of a title this is, never which title, and a search that keeps them finds the wrong
 /// work: "HIGHLANDER: DIRECTOR'S CUT" was asked as a possessive name ("HIGHLANDER: DIRECTOR'S") and the word left, "CUT", found a
-/// film called "Cut!" (#815). Pure. The phrases are matched as whole words, apostrophes dropped and case aside, so "Director’s Cut"
+/// film called "Cut!". Pure. The phrases are matched as whole words, apostrophes dropped and case aside, so "Director’s Cut"
 /// and "DIRECTORS CUT" are one phrase; an ordinal in front of a phrase ("25th") belongs to it, a bare number does not.
 /// </summary>
 public static partial class EditionPhrases

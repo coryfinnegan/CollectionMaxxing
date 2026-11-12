@@ -236,7 +236,7 @@ public sealed class TextSearchResolver(
 
         foreach (var rung in rungs.Select(rung => titleOnly with { Title = string.Join(' ', rung) }))
         {
-            // Words dropped down to an edition phrase ("Director's Cut") leave no title to search for (#815).
+            // Words dropped down to an edition phrase ("Director's Cut") leave no title to search for.
             if (!Identify.EditionPhrases.IsOnlyAPhrase(rung.Title) && asked.Add(Key(rung)))
             {
                 yield return rung;

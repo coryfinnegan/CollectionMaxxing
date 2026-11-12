@@ -106,7 +106,7 @@ public static class ReadSanitizer
 
     /// <summary>
     /// The edition phrase a case prints after its title ("HIGHLANDER: DIRECTOR'S CUT", <see cref="EditionPhrases"/>), split off the read
-    /// title so the title alone is searched and scored, and the phrase kept as the read's edition when the reader gave none (#815). Never for
+    /// title so the title alone is searched and scored, and the phrase kept as the read's edition when the reader gave none. Never for
     /// a game (a read that names the kind, a console or a product code): a game's "Special Edition" or "Collector's Edition" is often the
     /// title its catalogue holds. Null when the title does not end in a phrase, or is nothing but one. <see cref="ReadFacts.Text"/> stays.
     /// </summary>

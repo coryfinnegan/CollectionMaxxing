@@ -61,7 +61,7 @@ public static class TrimmedSpans
                 continue;
             }
 
-            // An edition phrase is no title to search for (#815): "X DIRECTOR'S CUT" without its first word is "DIRECTOR'S CUT".
+            // An edition phrase is no title to search for: "X DIRECTOR'S CUT" without its first word is "DIRECTOR'S CUT".
             var text = string.Join(' ', kept);
             if (EditionPhrases.IsOnlyAPhrase(text) || !tried.Add(text))
             {
@@ -83,7 +83,7 @@ public static class TrimmedSpans
     /// the span dropped from its start, each a word of the release's title or of one of its creators' names. A distinctive word is a title
     /// word (<see cref="TitleWordSet"/>: two letters or more, no stop word) that is not only digits, so a leading "THE", an initial or a
     /// sticker number asks nothing. True when the read has no such word. Pure; <see cref="IdentifyGrounding"/> asks it for a read that is
-    /// only a reader's title, with no text or lines of print (#815).
+    /// only a reader's title, with no text or lines of print.
     /// </summary>
     public static bool FindCarriesLeadingWords(string? read, TrimmedSpan span, string? title, IEnumerable<string> creators)
     {
