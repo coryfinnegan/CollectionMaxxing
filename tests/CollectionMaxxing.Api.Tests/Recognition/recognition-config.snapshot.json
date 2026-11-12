@@ -26,5 +26,6 @@
   },
   "fingerprints": {
     "maxDistance": 0.35
-  }
+  },
+  "shelfReader": false
 }
