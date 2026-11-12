@@ -234,8 +234,12 @@ services:
     networks:
       - reader
     volumes:
-      # Read-only: the deployer downloads and verifies the files on the host; the container only reads them.
-      - ${CM_MODELS_DIR:-../../models}:/models:ro
+      # Read-only, from the `models` volume (#804), not the Windows folder: Docker Desktop serves a Windows bind mount over
+      # a slow file bridge, so loading 6 GB from it took 131 to 219 s on a cold wake (past the api's 120 s limit), and 7 s
+      # from a volume. The deployer downloads and verifies the files in the Windows models folder (CM_MODELS_DIR) and
+      # copies them into this volume with a short-lived helper before it starts the reader; the config guard lets no
+      # other service mount the volume and no compose service bind the Windows models folder.
+      - models:/models:ro
       # The NVIDIA driver folder of Docker Desktop's WSL 2 VM (the read-only Windows driver store; driver binaries, no
       # user data), read-only, at the same path (#802). Older Docker GPU hooks copy only five of its files into the
       # container and leave out libnvdxgdmal.so.1, which this driver's libcuda needs, so CUDA fails and llama.cpp falls
@@ -251,7 +255,7 @@ services:
               capabilities: [gpu]
     healthcheck:
       # /health answers without waking a sleeping model. start_period matches the deployer's 10-minute start window
-      # (CmShelfReaderStartMinutes): loading 6 GB through a Windows bind mount may take minutes, and failed checks
+      # (CmShelfReaderStartMinutes): a first load after a fresh copy may still take a while, and failed checks
       # inside it do not count.
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8431/health"]
       interval: 30s
@@ -267,3 +271,7 @@ networks:
 volumes:
   pgdata:
   files:
+  # The shelf reader's model files (#804), filled by the deployer. An explicit name, so the deployer's fill helper and
+  # compose name the same volume (Cm.Common.ps1, CmModelsVolume). Removing it (docker compose down -v) costs a re-copy.
+  models:
+    name: collectionmaxxing_models
