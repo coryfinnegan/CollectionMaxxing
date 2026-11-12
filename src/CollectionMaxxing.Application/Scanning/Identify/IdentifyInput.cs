@@ -18,6 +18,8 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// is a hint: one that cannot be used (see <see cref="ReadBoxInput.Clamped"/>) is the same as none and never refuses the read.
 /// <c>Unconfirmed</c> marks a shelf read only the picture model made, at a place the Vision text engine found nothing: it is matched like
 /// any read, but its commit tier is T2 at most, so nothing adds it by itself (<see cref="CandidateResolver"/>).
+/// <c>ServerRead</c> marks a read the server's own shelf reader made (<c>ServerReadInput.ReadOf</c>), never one the API maps from a request:
+/// its title is the reader's whole answer, not a line of print (<see cref="ReadFacts.ServerRead"/>).
 /// </summary>
 public sealed record IdentifyItemInput(
     string? LocalId,
@@ -35,7 +37,8 @@ public sealed record IdentifyItemInput(
     string? ProductCode = null,
     ReadBoxInput? Box = null,
     bool Unconfirmed = false,
-    IReadOnlyList<string>? Lines = null);
+    IReadOnlyList<string>? Lines = null,
+    bool ServerRead = false);
 
 /// <summary>
 /// What the phone read from one photo. <c>Kind</c> is a shelf read unless the phone says cover; <c>BoundCandidateId</c> ties
@@ -285,7 +288,10 @@ internal static class IdentifyCleaning
                 item.Kind,
                 item.Format,
                 item.Year is >= MinYear and <= MaxYear ? item.Year : null,
-                Text(item.Platform, MaxPlatformLength));
+                Text(item.Platform, MaxPlatformLength))
+            {
+                ServerRead = item.ServerRead,
+            };
 
             // A product code that names exactly one game identifies the read (ADR-031); the title and platform it gives are the
             // table's, so they go in before the sanitiser, which then treats the read as the game it now is.

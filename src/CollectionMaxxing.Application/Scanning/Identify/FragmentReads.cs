@@ -47,8 +47,7 @@ public static partial class FragmentReads
     /// </summary>
     internal static readonly string[] BannerPhrases =
     [
-        "vhs", "dvd", "blu ray", "bluray", "home video", "family entertainment", "widescreen", "full screen", "fullscreen",
-        "directors cut", "special edition", "anniversary edition", "collectors edition", "special collectors edition",
+        "vhs", "dvd", "blu ray", "bluray", "home video", "family entertainment", .. EditionPhrases.Phrases,
     ];
 
     /// <summary>

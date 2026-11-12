@@ -91,6 +91,26 @@ public class PossessivePrefixTests
         PossessivePrefix.For(title)!.Name.ShouldBe(name);
     }
 
+    // #815: "HIGHLANDER: DIRECTOR'S CUT" was asked as "CUT" (the possessive name "HIGHLANDER: DIRECTOR'S" dropped) and found a film
+    // called "Cut!". A possessive that starts an edition phrase is no person's name, so nothing is dropped.
+    [Theory]
+    [InlineData("HIGHLANDER: DIRECTOR'S CUT")]
+    [InlineData("HIGHLANDER DIRECTOR'S CUT")]
+    [InlineData("DIRECTOR'S CUT")]
+    [InlineData("Director’s Cut Highlander")]
+    [InlineData("COPPER LANTERN COLLECTOR'S EDITION")]
+    public void A_possessive_that_starts_an_edition_phrase_is_no_name(string title)
+    {
+        PossessivePrefix.For(title).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_possessive_name_in_front_of_a_title_with_an_edition_word_in_it_is_still_dropped()
+    {
+        // The edition guard is about the possessive word itself: a real name in front of a title is dropped as before.
+        PossessivePrefix.For("STEVEN SPIELBERG'S JURASSIC PARK SPECIAL EDITION")!.Title.ShouldBe("JURASSIC PARK SPECIAL EDITION");
+    }
+
     [Fact]
     public void The_first_possessive_word_ends_the_name()
     {

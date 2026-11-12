@@ -29,6 +29,8 @@ namespace CollectionMaxxing.Application.Scanning.Identify;
 /// <see cref="CreatorIsAGuess"/> is set by <see cref="CreatorSwap"/> alone, on a book read or a read in a snap of books: the creator is the line the
 /// phone sent as the title, asked as the author. It reaches the scorer (<see cref="ToReadItem"/>) but not the providers (<see cref="ToQuery"/>),
 /// so ask text and cache keys are the same with or without it.
+/// <see cref="ServerRead"/> marks a read the server's own shelf reader made (<see cref="IdentifyItemInput.ServerRead"/>): its title is the
+/// reader's whole answer, with no stray print at its ends, which the trimmed-span retry relies on (<see cref="IdentifyGrounding.RetryTrimmedAsync"/>).
 /// </summary>
 public sealed record ReadFacts(
     string? Title,
@@ -46,7 +48,8 @@ public sealed record ReadFacts(
     string? CreatorAsRead = null,
     string? Lines = null,
     string? PlatformContext = null,
-    bool CreatorIsAGuess = false)
+    bool CreatorIsAGuess = false,
+    bool ServerRead = false)
 {
     /// <summary>The canonical platform names the shot prints, split from <see cref="PlatformContext"/>; none when it printed none.</summary>
     public IReadOnlyList<string> PrintedPlatforms => PlatformContext is { Length: > 0 } ? PlatformContext.Split('|') : [];
@@ -234,13 +237,15 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     public static bool WantsRetry(ReadFacts facts, ScoringProfileKind profile, BarcodeResolution answer, LocalPool? local = null) =>
         AttemptsFor(facts, profile, answer, local).Count > 0;
 
-    /// <summary>One more way to ask about a read: the facts to ask with, and the trace step that says what they are.</summary>
     /// <summary>
     /// One more way to ask about a read: the facts to ask with, and the trace step that says what they are. <paramref name="Keeps"/> is set for
     /// a line of the spine (<see cref="SpineLines"/>) only: what such an ask finds is kept just when it says yes to the answer and the catalogue
     /// pool it was scored against (an author of the best release is printed on the spine); otherwise the ask counts as having found nothing.
+    /// <paramref name="Accepts"/> is the same test for any other attempt, without the line's other rules: set for a trimmed span of a read
+    /// that is only a reader's title (<see cref="CarriesDroppedLeadingWords"/>).
     /// </summary>
-    private sealed record Attempt(ReadFacts Facts, TraceStep Step, Func<BarcodeResolution, LocalPool, bool>? Keeps = null);
+    private sealed record Attempt(
+        ReadFacts Facts, TraceStep Step, Func<BarcodeResolution, LocalPool, bool>? Keeps = null, Func<BarcodeResolution, LocalPool, bool>? Accepts = null);
 
     /// <summary>
     /// The ways to ask again about a read, in the order they are tried. A read that found nothing: its title without its possessive
@@ -293,7 +298,8 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
             {
                 if (asked.Add(span.Text))
                 {
-                    attempts.Add(new Attempt(facts with { Title = span.Text }, new TraceStep(TrimmedStep, $"{span.Text} (dropped: {span.Dropped})", 0)));
+                    attempts.Add(new Attempt(
+                        facts with { Title = span.Text }, new TraceStep(TrimmedStep, $"{span.Text} (dropped: {span.Dropped})", 0), Accepts: CarriesDroppedLeadingWords(facts, span)));
                 }
             }
         }
@@ -318,6 +324,21 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
         AddAnyKindAttempt(attempts, facts, spine);
         return attempts;
     }
+
+    /// <summary>
+    /// For a span of a read that is only a reader's title: what the span finds is kept only when its best release carries the read's leading
+    /// words (<see cref="TrimmedSpans.FindCarriesLeadingWords"/>: the read's first distinctive word and any the span dropped from its start,
+    /// in the release's title or a creator's name), and otherwise counts as having found nothing. A read the server's own shelf reader made
+    /// (<see cref="ReadFacts.ServerRead"/>) is the reader's answer, not a line of print with stray words at its ends: its leading word is the title's own, and a franchise
+    /// word is the one that tells the right film from the wrong one ("HIGHLANDER THE FINAL DIMENSION" found "The Final Destination" without
+    /// it). An author's name in front of the title ("SARAH J. CROWN OF MIDNIGHT") is carried by the find's creator. Null (no test,
+    /// the plain rule) for a read the phone sent, whose leading word may be print the spine carries beside its title.
+    /// </summary>
+    private static Func<BarcodeResolution, LocalPool, bool>? CarriesDroppedLeadingWords(ReadFacts facts, TrimmedSpan span) =>
+        !facts.ServerRead
+            ? null
+            : (found, pool) => found.Options.Count > 0
+                && TrimmedSpans.FindCarriesLeadingWords(facts.SearchText, span, TitleOf(found.Options[0], pool), CreatorsOf(found.Options[0], pool));
 
     /// <summary>The trace step of the creator swap.</summary>
     private const string SwappedStep = "swapped";
@@ -573,7 +594,8 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
                 var i = looking[n];
                 var attempt = attempts[i][round];
                 var found = scored[n];
-                if (found.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous && (attempt.Keeps?.Invoke(found, pools[n]) ?? true))
+                if (found.Verdict is ResolutionVerdict.Matched or ResolutionVerdict.Ambiguous
+                    && (attempt.Keeps?.Invoke(found, pools[n]) ?? true) && (attempt.Accepts?.Invoke(found, pools[n]) ?? true))
                 {
                     // A line of the spine is the find itself (the read was about to be skipped), its own release among the read's at most.
                     answers[i] = attempt.Keeps is null

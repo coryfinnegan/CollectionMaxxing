@@ -16,7 +16,8 @@ public sealed record PossessiveDrop(string Title, string Dropped, string Name);
 /// The prefix is one to <see cref="MaxNameWords"/> capitalised words, the last of which ends in 's (or a curly apostrophe and s), and then one marketing
 /// word if there is one. At least one word must be left after it, and a lone marketing word is no title ("Disney's Collection"
 /// asks nothing). A leading article is no name: "The King's Speech" and "A Bug's Life" are titles, not a person's. Nor is a
-/// contraction ("It's", "What's"): <see cref="Contractions"/>. The possessive can still be the real title ("Bram Stoker's Dracula", "Ender's Game"); this only says what is left without it, and the caller
+/// contraction ("It's", "What's"): <see cref="Contractions"/>. Nor is a possessive that starts an edition phrase ("DIRECTOR'S CUT",
+/// <see cref="EditionPhrases"/>): "HIGHLANDER: DIRECTOR'S CUT" is no name in front of "CUT". The possessive can still be the real title ("Bram Stoker's Dracula", "Ender's Game"); this only says what is left without it, and the caller
 /// keeps what the whole read found.
 /// </remarks>
 public static class PossessivePrefix
@@ -50,7 +51,9 @@ public static class PossessivePrefix
         var words = (title ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
         var end = EndOfName(words);
         var left = words.Length - (end + 1);
-        if (end < 0 || left == 0)
+
+        // A possessive that starts an edition phrase ("DIRECTOR'S CUT", "COLLECTOR'S EDITION") is no person's name.
+        if (end < 0 || left == 0 || EditionPhrases.StartsWithAPhrase(words[end..]))
         {
             return null;
         }
