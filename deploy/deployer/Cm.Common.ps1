@@ -360,6 +360,9 @@ function Test-CmConfig {
             if ("$($def.pid)" -eq 'host') { $problems.Add("service '$name' shares the host process namespace (pid: host)") }
             if ("$($def.ipc)" -eq 'host') { $problems.Add("service '$name' shares the host IPC namespace (ipc: host)") }
             if (@($def.devices | Where-Object { $_ }).Count -gt 0) { $problems.Add("service '$name' maps host devices (devices)") }
+            # volumes_from hands a service every mount of another service or container (the reader's models and driver
+            # folders, say) past the per-service bind rules below, so no service may use it.
+            if (@($def.volumes_from | Where-Object { $_ }).Count -gt 0) { $problems.Add("service '$name' takes another service's or container's mounts (volumes_from)") }
             if ("$($def.runtime)".Trim()) { $problems.Add("service '$name' sets a container runtime (runtime: $($def.runtime))") }
             $envNames = @()
             if ($def.environment -is [System.Management.Automation.PSCustomObject]) { $envNames = @($def.environment.PSObject.Properties.Name) }

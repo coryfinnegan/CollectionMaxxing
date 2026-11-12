@@ -23,12 +23,13 @@
 #   * CM_SHELF_READER=0 in .env, or a host where nvidia-smi lists no card: nothing is pulled, downloaded or started.
 #   * The card inside Docker (#802): a healthy reader is not proof that llama.cpp uses the card (it falls back to the
 #     processor). Its start log is read once per container start, when it is first seen healthy and before the api is
-#     given the endpoint; "no usable GPU found" or "failed to initialize CUDA" is a failure. A log that cannot be read
-#     waits a poll.
+#     given the endpoint. It must show llama-server starting ("llama_server: initializing"); then "no usable GPU found" or
+#     "failed to initialize CUDA" is a failure. A log that cannot be read (or lacks that line) waits a poll, but not past the
+#     start window counted from the container's start.
 #   * A changed definition reaches a running reader (#802): compose's config hash for shelf-reader at the deployed commit
 #     against the com.docker.compose.config-hash label of the running container. Different: the same `up -d --no-deps
-#     shelf-reader` recreates it, once per definition; the start window and the card check apply to the new start, and
-#     the api keeps its endpoint (no restart). Either hash unreadable: nothing happens that poll.
+#     shelf-reader` recreates it, at most once per deployed commit; the start window and the card check apply to the new
+#     start, and the api keeps its endpoint (no restart). Either hash unreadable skips only the recreation that poll.
 #
 # Lock budget: every external call here has a timeout, so one pass of this step is bounded (Get-CmShelfReaderWorstCaseSeconds:
 # about 17 minutes on the start or recreate path, 13 on the switch-on path, plus hashing a finished 6 GB file once), well under the
@@ -58,6 +59,8 @@ $script:CmShelfReaderUpSeconds = 120            # one `compose up -d --no-deps` 
 $script:CmShelfReaderStopSeconds = 60           # `compose stop shelf-reader`
 # What llama.cpp logs at start when CUDA does not come up inside the container and it falls back to the processor (#802).
 $script:CmShelfReaderNoCardPattern = '(?i)no usable GPU found|failed to initialize CUDA'
+# The line llama-server prints as it starts; a start log without it does not cover the start, so it proves nothing.
+$script:CmShelfReaderStartedPattern = 'llama_server: initializing'
 
 function Get-CmShelfReaderFiles { <# The two pinned model files. Tests set $global:CmShelfReaderFiles to tiny ones. #> if ($global:CmShelfReaderFiles) { return @($global:CmShelfReaderFiles) } @($script:CmShelfReaderPins) }
 
@@ -397,6 +400,9 @@ function Get-CmShelfReaderCardVerdict {
     $until = $since + $script:CmShelfReaderStartMinutes * 60
     $r = Invoke-Cm -Command 'docker' -Arguments @('logs', '--since', "$since", '--until', "$until", $Id) -TimeoutSeconds $script:CmShelfReaderCallSeconds
     if ($r.ExitCode -ne 0) { return & $verdict 'unknown' }
+    # Proof the window covers the start: llama-server prints this right after the point where the markers appear. A
+    # reader that does use the card prints no positive line at this log level, so without it nothing is proven.
+    if (-not (@($r.Output) | Where-Object { "$_" -match $script:CmShelfReaderStartedPattern })) { return & $verdict 'unknown' }
     $hit = @($r.Output) | Where-Object { "$_" -match $script:CmShelfReaderNoCardPattern } | Select-Object -First 1
     if ($null -ne $hit) {
         $line = ("$hit" -replace '[^\x20-\x7E]', ' ').Trim()
@@ -541,48 +547,72 @@ function Invoke-CmShelfReader {
         }
 
         # 6. A running reader must match the compose file at the deployed commit (#802): compose's config hash for the
-        # service against the hash compose stamped on the container. Either one unreadable: nothing this poll. Changed:
-        # recreated with the same `up`, once per definition, and judged again from its new start (start window, card check).
+        # service (asked with the same environment as the `up` below) against the hash compose stamped on the container.
+        # Changed: recreated with the same `up`, at most once per deployed commit, and judged again from its new start
+        # (start window, card check). Either hash unreadable skips only this decision; the rest of the step carries on.
         $box = $null
         if ($health -in 'healthy', 'starting', 'unhealthy') {
             $box = Get-CmShelfReaderContainer -Id $status.Id
             $want = if ($box -and $box.ConfigHash) { Get-CmShelfReaderWantedHash -RCtx $rc -Tag $tag -Endpoint (Get-CmShelfReaderEndpoint -Ctx $Ctx) } else { '' }
             if (-not $box -or -not $box.ConfigHash -or -not $want) {
-                & $note "the reader is $health, but whether it matches the compose file at $short could not be read; the next poll looks again"
-                return
-            }
-            if ($want -ne $box.ConfigHash) {
-                if ("$($sr['recreatedFor'])" -ne $want) {
-                    $sr['recreatedFor'] = $want
-                    $why = & $start
-                    if ($why) { & $fail "could not recreate the reader for its changed definition at ${short}: $why"; return }
-                    $sr['startedAt'] = $nowSec
-                    if ($sr['on'] -eq $true) { $sr['downSince'] = $nowSec }
-                    $keeps = if ($sr['on'] -eq $true) { '; the api keeps its endpoint and reports the reader unavailable while it loads' } else { '' }
-                    Write-CmLog "shelf reader: its definition changed at $short, so the container was recreated; it is checked again once healthy$keeps"
-                    return
+                if ("$($sr['hashUnread'])" -ne $tag) {
+                    $sr['hashUnread'] = $tag
+                    Write-CmLog "shelf reader: whether the running reader matches the compose file at $short could not be read, so it is not recreated this poll" 'WARN'
                 }
-                if ("$($sr['stuckFor'])" -ne $want) {
-                    $sr['stuckFor'] = $want
-                    Write-CmLog "shelf reader: the container still does not match the compose file at $short after it was recreated for it; it is left as it is" 'WARN'
+            }
+            else {
+                if ($sr.ContainsKey('hashUnread')) { [void]$sr.Remove('hashUnread') }
+                if ($want -ne $box.ConfigHash) {
+                    if ("$($sr['recreatedAt'])" -ne $tag) {
+                        $sr['recreatedAt'] = $tag
+                        $why = & $start
+                        if ($why) { & $fail "could not recreate the reader for its changed definition at ${short}: $why"; return }
+                        $sr['startedAt'] = $nowSec
+                        if ($sr['on'] -eq $true) { $sr['downSince'] = $nowSec }
+                        $keeps = if ($sr['on'] -eq $true) { '; the api keeps its endpoint and reports the reader unavailable while it loads' } else { '' }
+                        Write-CmLog "shelf reader: its definition changed at $short, so the container was recreated; it is checked again once healthy$keeps"
+                        return
+                    }
+                    if ("$($sr['stuckAt'])" -ne $tag) {
+                        $sr['stuckAt'] = $tag
+                        Write-CmLog "shelf reader: the container still does not match the compose file at $short after it was recreated once for this commit; it is left as it is until the next deployed commit" 'WARN'
+                    }
                 }
             }
         }
         # 7. The card inside Docker (#802): read once per container start, when it is first seen healthy, before the api
-        # is given the endpoint. A start log that says the card is not usable is a failure; one that cannot be read waits a poll.
+        # is given the endpoint. A start log that says the card is not usable is a failure. One that cannot be read (or does
+        # not reach back to the start) waits a poll, but not past the start window counted from the container's start.
         $cardCheck = {
+            if (-not $box) {
+                # The start time cannot be read: a container already checked under this id passes, any other waits.
+                if ($status.Id -and "$($sr['checkedStart'])".StartsWith("$($status.Id)|")) { return [pscustomobject]@{ Verdict = 'ok'; Line = '' } }
+                return [pscustomobject]@{ Verdict = 'unknown'; Line = '' }
+            }
             $key = "$($status.Id)|$($box.StartedAt)"
             if ("$($sr['checkedStart'])" -eq $key) { return [pscustomobject]@{ Verdict = 'ok'; Line = '' } }
             $v = Get-CmShelfReaderCardVerdict -Id $status.Id -StartedAt $box.StartedAt
-            if ($v.Verdict -eq 'ok') { $sr['checkedStart'] = $key; Write-CmLog 'shelf reader: its start log shows no sign that the graphics card is unusable' }
+            if ($v.Verdict -eq 'ok') { $sr['checkedStart'] = $key; Write-CmLog 'shelf reader: its start log shows llama.cpp starting with no sign that the graphics card is unusable' }
             $v
+        }
+        $unknownCard = {
+            # True when the step must stop here: still inside the start window (wait a poll), or past it (a failure).
+            param($noteText)
+            $startSec = 0L
+            if ($box) { try { $startSec = ConvertTo-CmEpoch (ConvertTo-CmUtc $box.StartedAt) } catch { $startSec = 0L } }
+            if ($startSec -le 0) { $startSec = ConvertTo-CmLong $sr['startedAt'] }
+            if ($startSec -le 0 -or ($nowSec - $startSec) -ge $script:CmShelfReaderStartMinutes * 60) {
+                & $fail 'the reader''s start log could not be read, so the graphics card could not be checked'
+                return
+            }
+            & $note $noteText
         }
         $noCard = { param($line) "the reader started but cannot use the graphics card inside Docker (its log says: $line)" }
 
         if ($sr['on'] -eq $true) {
             if ($health -eq 'healthy') {
                 $card = & $cardCheck
-                if ($card.Verdict -eq 'unknown') { & $note 'on, but the reader''s start log could not be read to check the graphics card; the next poll tries again'; return }
+                if ($card.Verdict -eq 'unknown') { & $unknownCard 'on, but the reader''s start log could not be read to check the graphics card; the next poll tries again'; return }
                 if ($card.Verdict -eq 'bad') { & $fail (& $noCard $card.Line); return }
                 $sr['downSince'] = 0; & $note 'on'; return
             }
@@ -622,7 +652,7 @@ function Invoke-CmShelfReader {
             'healthy' {
                 if ((ConvertTo-CmLong $sr['startedAt']) -le 0) { $sr['startedAt'] = $nowSec }
                 $card = & $cardCheck
-                if ($card.Verdict -eq 'unknown') { & $note 'healthy, but its start log could not be read to check the graphics card; the next poll tries again'; return }
+                if ($card.Verdict -eq 'unknown') { & $unknownCard 'healthy, but its start log could not be read to check the graphics card; the next poll tries again'; return }
                 if ($card.Verdict -eq 'bad') { & $fail (& $noCard $card.Line); return }
                 $running = Get-CmRunningApiEndpoint -RCtx $rc -Tag $tag
                 if ($null -eq $running) { & $note 'healthy, but the running api''s settings could not be read; the next poll tries again'; return }

@@ -983,7 +983,8 @@ Test-Case 'shelf reader: the PC as #802 found it (on, healthy, on the processor,
 }
 
 Test-Case 'shelf reader: a reader whose start log says the card is not usable never gets the endpoint, is stopped, and raises the alert once' {
-    foreach ($log in @(@(Get-TestReaderCpuLog), @('warning: no usable GPU found, --gpu-layers option will be ignored'), @('ggml_cuda_init: failed to initialize CUDA: named symbol not found'))) {
+    $cpu = @(Get-TestReaderCpuLog)
+    foreach ($log in @($cpu, @($cpu | Where-Object { $_ -notmatch 'no usable GPU' }), @($cpu | Where-Object { $_ -notmatch 'failed to initialize CUDA' }))) {
         $global:CmCalls.Clear()
         $what = $log -join ' / '
         Use-TestReaderRoot -State (Get-UpToDateState) {
@@ -1102,7 +1103,7 @@ Test-Case 'shelf reader: a changed reader definition recreates the running reade
     }
 }
 
-Test-Case 'shelf reader: an unchanged definition is never recreated, and an unknown hash or start does nothing that poll' {
+Test-Case 'shelf reader: an unchanged definition is never recreated, and an unknown hash or start skips the recreation for that poll' {
     foreach ($how in 'same', 'hash', 'inspect', 'label') {
         $global:CmCalls.Clear()
         Use-TestReaderRoot -State (Get-UpToDateState) {
@@ -1150,7 +1151,12 @@ Test-Case 'shelf reader: a recreation that does not change the container''s hash
         Assert-Equal 0 (Get-ApiSwitches).Count
         $global:CmMachine.ComposeHash = 'cfg-hash-3'
         Invoke-TestReaderPass $root | Out-Null
-        Assert-Equal 2 (Get-ReaderUps).Count 'a newer definition is tried again'
+        Assert-Equal 1 (Get-ReaderUps).Count 'not even for another hash at the same deployed commit'
+        $sha3 = 'c3' * 20
+        $global:CmMachine.Sha = $sha3; $global:CmMachine.Graph[$sha3] = @($script:Sha1, $script:Sha2)
+        Assert-Equal 'deployed' (Invoke-TestReaderPass $root).Result.Outcome
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 2 (Get-ReaderUps).Count 'a newly deployed commit is tried again'
     }
 }
 
@@ -1170,5 +1176,208 @@ Test-Case 'shelf reader: a recreation that fails is a reader failure, never a de
         Assert-Match $r.Log 'ERROR ALERT shelf-reader '
         Assert-Equal $switches (Get-ApiSwitches).Count
         Assert-Equal $script:Sha2 $r.State.current.sha
+    }
+}
+
+# ---- fix round 1 (#802): the reader's lifecycle never rests on the hash, and the card check never passes on no proof ----
+
+function Get-ReaderLogUnix { param([string]$StartedAt) [DateTimeOffset]::new((ConvertTo-CmUtc $StartedAt)).ToUnixTimeSeconds() }
+
+Test-Case 'shelf reader: with compose''s hash unreadable for ever, a reader that is on and unhealthy is still stopped and alerted after 10 minutes' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        $t0 = [DateTime]::UtcNow
+        $global:CmNow = $t0
+        Invoke-TestReaderUntilOn $root | Out-Null
+        $global:CmMachine.ComposeHashFails = $true
+        $global:CmMachine.ReaderHealth = 'unhealthy'
+        $global:CmCalls.Clear()
+        $global:CmNow = $t0.AddMinutes(1); Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 0 (Get-ReaderStops).Count 'given time first'
+        $global:CmNow = $t0.AddMinutes(12)
+        $late = Invoke-TestReaderPass $root
+        Assert-Equal 1 (Get-ReaderStops).Count 'stopped after the usual 10 minutes'
+        Assert-Match $late.Log 'ERROR ALERT shelf-reader the reader has not been healthy for 10 minutes'
+        Assert-False ([bool]$late.State.shelfReader.on)
+        Assert-Equal 0 (Get-ApiSwitches).Count 'the api is never restarted to switch the reader off'
+        Assert-Equal 0 (Get-ReaderUps).Count 'and nothing was recreated'
+    }
+}
+
+Test-Case 'shelf reader: with compose''s hash unreadable for ever, the start window still fails a reader that never turns healthy' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ComposeHashFails = $true; ReaderStartsAs = 'starting' }
+        Add-TestReaderFiles $root
+        $t0 = [DateTime]::UtcNow
+        $global:CmNow = $t0
+        Invoke-TestReaderPass $root | Out-Null
+        $global:CmNow = $t0.AddMinutes(5); Invoke-TestReaderPass $root | Out-Null
+        $global:CmNow = $t0.AddMinutes(11)
+        $late = Invoke-TestReaderPass $root
+        Assert-Match $late.Log 'ERROR ALERT shelf-reader .*within 10 minutes'
+        Assert-Equal 1 (Get-ReaderStops).Count
+        Assert-Equal 0 (Get-ApiSwitches).Count
+    }
+}
+
+Test-Case 'shelf reader: with compose''s hash unreadable, a healthy unchecked reader is still checked and handed over' {
+    foreach ($log in 'gpu', 'cpu') {
+        $global:CmCalls.Clear()
+        Use-TestReaderRoot -State (Get-UpToDateState) {
+            param($root)
+            $lines = if ($log -eq 'gpu') { @(Get-TestReaderGpuLog) } else { @(Get-TestReaderCpuLog) }
+            Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ComposeHashFails = $true; ReaderLogOnStart = $lines }
+            Add-TestReaderFiles $root
+            Invoke-TestReaderPass $root | Out-Null
+            $r = Invoke-TestReaderPass $root
+            Assert-Equal 1 (Get-ReaderLogReads).Count "the card check ran ($log)"
+            if ($log -eq 'gpu') {
+                Assert-True ([bool]$r.State.shelfReader.on) 'on'
+                Assert-Equal 1 (Get-ApiSwitches).Count 'handed over'
+            }
+            else {
+                Assert-False ([bool]$r.State.shelfReader.on) 'the processor log still fails it'
+                Assert-Equal 0 (Get-ApiSwitches).Count
+            }
+        }
+    }
+}
+
+Test-Case 'shelf reader: a start log without llama_server starting proves nothing: an empty or wrong-window log is not a pass' {
+    foreach ($case in @(
+            @{ What = 'empty'; Log = @() }
+            @{ What = 'no start line'; Log = @(Get-TestReaderGpuLog | Where-Object { $_ -notmatch 'llama_server: initializing' }) }
+        )) {
+        $global:CmCalls.Clear()
+        Use-TestReaderRoot -State (Get-UpToDateState) {
+            param($root)
+            Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderLogOnStart = $case.Log }
+            Add-TestReaderFiles $root
+            $t0 = [DateTime]::UtcNow
+            $global:CmNow = $t0
+            Invoke-TestReaderPass $root | Out-Null
+            $global:CmNow = $t0.AddMinutes(2)
+            $r = Invoke-TestReaderPass $root
+            Assert-Equal 1 (Get-ReaderLogReads).Count $case.What
+            Assert-Equal 0 (Get-ApiSwitches).Count "not handed over ($($case.What))"
+            Assert-False ([bool]$r.State.shelfReader.on) $case.What
+            Assert-False ($r.Log -match 'ALERT') "not a failure yet ($($case.What))"
+        }
+    }
+}
+
+Test-Case 'shelf reader: the start log is read from the floor of the container''s start second to the end of its start window' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        Invoke-TestReaderPass $root | Out-Null
+        $global:CmMachine.ReaderStartedAt = '2026-11-12T08:00:00.987654321Z'
+        Invoke-TestReaderPass $root | Out-Null
+        $read = @(Get-ReaderLogReads)
+        Assert-Equal 1 $read.Count
+        $since = Get-ReaderLogUnix '2026-11-12T08:00:00Z'
+        Assert-Equal "logs --since $since --until $($since + 600) $($global:CmMachine.ReaderId)" (@($read[0].Arguments) -join ' ') 'the floor, not the rounded-up second'
+    }
+}
+
+Test-Case 'shelf reader: a start log that stays unreadable fails the reader after the start window, and it is never handed over' {
+    foreach ($how in 'fails', 'empty') {
+        $global:CmCalls.Clear()
+        Use-TestReaderRoot -State (Get-UpToDateState) {
+            param($root)
+            $machine = @{ Gpu = $true; Up = $script:Sha2 }
+            if ($how -eq 'fails') { $machine.ReaderLogFails = $true } else { $machine.ReaderLogOnStart = @() }
+            Start-TestReaderMachine $machine
+            Add-TestReaderFiles $root
+            $t0 = [DateTime]::UtcNow
+            $global:CmNow = $t0
+            Invoke-TestReaderPass $root | Out-Null
+            foreach ($minutes in 2, 6, 9) { $global:CmNow = $t0.AddMinutes($minutes); Invoke-TestReaderPass $root | Out-Null }
+            Assert-Equal 0 (Get-ReaderStops).Count "waits inside the window ($how)"
+            $global:CmNow = $t0.AddMinutes(11)
+            $late = Invoke-TestReaderPass $root
+            Assert-Match $late.Log 'ERROR ALERT shelf-reader the reader''s start log could not be read, so the graphics card could not be checked' $how
+            Assert-Equal 1 (Get-ReaderStops).Count $how
+            Assert-Equal 0 (Get-ApiSwitches).Count "never handed over ($how)"
+            Assert-Equal 1 (Get-ReaderAlerts).Count $how
+        }
+    }
+}
+
+Test-Case 'shelf reader: a reader that is on, recreated, and whose new start log stays unreadable is stopped after the window, without an api restart' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        $t0 = [DateTime]::UtcNow
+        $global:CmNow = $t0
+        Invoke-TestReaderUntilOn $root | Out-Null
+        $global:CmMachine.ComposeHash = 'cfg-hash-2'
+        $global:CmMachine.ReaderLogFails = $true
+        $global:CmCalls.Clear()
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 1 (Get-ReaderUps).Count 'recreated'
+        foreach ($minutes in 2, 6) {
+            $global:CmNow = $t0.AddMinutes($minutes)
+            $p = Invoke-TestReaderPass $root
+            Assert-True ([bool]$p.State.shelfReader.on) "an unreadable log is no pass and no failure yet ($minutes min)"
+            Assert-Equal 'on, but the reader''s start log could not be read to check the graphics card; the next poll tries again' "$($p.State.shelfReader.note)"
+        }
+        $global:CmNow = $t0.AddMinutes(12)
+        $late = Invoke-TestReaderPass $root
+        Assert-False ([bool]$late.State.shelfReader.on)
+        Assert-Equal 1 (Get-ReaderStops).Count
+        Assert-Match $late.Log 'could not be read, so the graphics card could not be checked'
+        Assert-Equal 0 (Get-ApiSwitches).Count 'switching it off never restarts the api'
+    }
+}
+
+Test-Case 'shelf reader: a hash that changes on every poll gives one recreation per deployed commit, then one WARN' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        Invoke-TestReaderUntilOn $root | Out-Null
+        $global:CmCalls.Clear()
+        $log = ''
+        foreach ($i in 1..5) { $global:CmMachine.ComposeHash = "cfg-moving-$i"; $log += (Invoke-TestReaderPass $root).Log }
+        Assert-Equal 1 (Get-ReaderUps).Count 'one recreation'
+        Assert-Equal 1 ([regex]::Matches($log, 'WARN  shelf reader: the container still does not match')).Count "one WARN: $log"
+    }
+}
+
+Test-Case 'shelf reader: recreating a reader still in its start window starts the window again' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderStartsAs = 'starting' }
+        Add-TestReaderFiles $root
+        $t0 = [DateTime]::UtcNow
+        $global:CmNow = $t0
+        Invoke-TestReaderPass $root | Out-Null
+        $global:CmNow = $t0.AddMinutes(8)
+        $global:CmMachine.ComposeHash = 'cfg-hash-2'
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 2 (Get-ReaderUps).Count 'started, then recreated'
+        $global:CmNow = $t0.AddMinutes(11)
+        $p = Invoke-TestReaderPass $root
+        Assert-False ($p.Log -match 'ALERT') "3 minutes after the recreation is inside the new window: $($p.Log)"
+        Assert-Equal 0 (Get-ReaderStops).Count
+        $global:CmNow = $t0.AddMinutes(19)
+        Assert-Match (Invoke-TestReaderPass $root).Log 'within 10 minutes' 'and the new window does end'
+    }
+}
+
+Test-Case 'shelf reader guard: volumes_from is refused on every service, in any form' {
+    foreach ($case in @(@{ Svc = 'backup'; From = 'shelf-reader' }, @{ Svc = 'shelf-reader'; From = 'api' }, @{ Svc = 'api'; From = 'container:some-container' })) {
+        $cfg = New-GuardConfigWithReader
+        if (-not $cfg.services.($case.Svc)) { $cfg.services | Add-Member -NotePropertyName $case.Svc -NotePropertyValue ([pscustomobject]@{}) }
+        $cfg.services.($case.Svc) | Add-Member -NotePropertyName volumes_from -NotePropertyValue @($case.From) -Force
+        $problems = @(Get-GuardProblems $cfg)
+        Assert-Equal 1 $problems.Count "[$($case.Svc) from $($case.From)]: $($problems -join '; ')"
+        Assert-Match $problems[0] "service '$($case.Svc)' takes another service's or container's mounts \(volumes_from\)"
     }
 }

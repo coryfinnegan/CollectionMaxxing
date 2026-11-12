@@ -116,17 +116,34 @@ function New-GoodComposeConfig {
 }
 
 function Get-TestReaderGpuLog {
-    <# The start of a llama-server log that found the card (the shape of the lines, not a copy of a real log). #>
-    @('ggml_cuda_init: found 1 CUDA devices:', '  Device 0: NVIDIA GeForce RTX 4070 Ti, compute capability 8.9, VMM: yes',
-        'load_tensors: offloaded 37/37 layers to GPU', 'srv  server_run: model loaded')
+    <# The start log of a reader that uses the card, verbatim from the PC (#802): at this log level no line says so. #>
+    @('warn: LLAMA_ARG_HOST environment variable is set, but will be overwritten by command line argument --host'
+        'warn: LLAMA_ARG_PORT environment variable is set, but will be overwritten by command line argument --port'
+        '0.00.222.462 I srv  llama_server: initializing ...'
+        '0.00.222.512 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)'
+        '0.00.222.722 I srv  init_listene: The UI is disabled'
+        '0.00.222.858 W srv  server_setup: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)'
+        "0.00.242.934 I srv    load_model: loading model '/models/Qwen3VL-8B-Instruct-Q4_K_M.gguf'"
+        '2.04.388.631 I cmn          init: llama threadpool init, n_threads = 16'
+        "2.10.549.999 I srv    load_model: loaded multimodal model, '/models/mmproj-Qwen3VL-8B-Instruct-F16.gguf'"
+        "2.10.803.278 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 12288, kv_unified = 'false'"
+        '2.10.812.293 I srv  server_run_i: model loaded'
+        '2.10.812.309 I srv  server_on_li: listening on http://0.0.0.0:8431')
 }
 
 function Get-TestReaderCpuLog {
-    <# The start of a llama-server log on a host whose CUDA could not start inside Docker (issue #802). #>
-    @('ggml_cuda_init: failed to initialize CUDA: named symbol not found', 'warning: no usable GPU found, --gpu-layers option will be ignored',
-        'srv  server_run: model loaded')
+    <# The start log of a reader whose CUDA could not start inside Docker, so it runs on the processor, verbatim from the PC (#802). #>
+    @('warn: LLAMA_ARG_HOST environment variable is set, but will be overwritten by command line argument --host'
+        'warn: LLAMA_ARG_PORT environment variable is set, but will be overwritten by command line argument --port'
+        '0.00.235.033 E ggml_cuda_init: failed to initialize CUDA: named symbol not found'
+        'warning: no usable GPU found, --gpu-layers option will be ignored'
+        'warning: one possible reason is that llama.cpp was compiled without GPU support'
+        'warning: consult docs/build.md for compilation instructions'
+        '0.00.249.706 I srv  llama_server: initializing ...'
+        "0.00.268.125 I srv    load_model: loading model '/models/Qwen3VL-8B-Instruct-Q4_K_M.gguf'"
+        '3.39.208.595 I srv  server_run_i: model loaded'
+        '3.39.208.669 I srv  server_on_li: listening on http://0.0.0.0:8431')
 }
-
 function New-FakeMachine {
     <#
       Installs $global:CmRunner. Options (all optional):
@@ -268,7 +285,15 @@ function New-FakeMachine {
                 }
                 if ($line -match '^compose .* config --hash shelf-reader$') { if ($m.ComposeHashFails) { return & $fail } return & $ok @("shelf-reader $($m.ComposeHash)") }
                 if ($line -match '^inspect \S+ --format \{\{\.State\.StartedAt\}\}') { if ($m.ReaderInspectFails) { return & $fail } return & $ok @("$($m.ReaderStartedAt)|$($m.ReaderLabelHash)") }
-                if ($line -match '^logs ') { if ($m.ReaderLogFails) { return & $fail } return & $ok @($m.ReaderLog) }
+                if ($line -match '^logs ') {
+                    if ($m.ReaderLogFails) { return & $fail }
+                    # Like docker: only the lines written between --since and --until. The log starts in the container's first
+                    # second (the PC prints the CUDA marker 0.235 s in), so a --since past that second loses it.
+                    $startSec = [DateTimeOffset]::new((ConvertTo-CmUtc $m.ReaderStartedAt)).ToUnixTimeSeconds()
+                    if ($line -match '--since (\d+)' -and [long]$Matches[1] -gt $startSec) { return & $ok }
+                    if ($line -match '--until (\d+)' -and [long]$Matches[1] -lt $startSec + 1) { return & $ok }
+                    return & $ok @($m.ReaderLog)
+                }
                 if ($line -match '^compose .* stop shelf-reader$') { if ($m.ReaderHealth -ne 'missing') { $m.ReaderHealth = 'exited' } return & $ok }
                 if ($line -match '^pull') { if ($m.PullThrows) { throw 'docker exploded' }; if ($line -match ':main(\s|$)') { $m.MainPulls++ }; if ($m.PullFails) { return & $fail } return & $ok }
                 if ($line -match '^image inspect (\S+)') {
