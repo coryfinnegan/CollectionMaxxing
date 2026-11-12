@@ -297,12 +297,67 @@ cm_backup_due() {
   ((newest + grace < last))
 }
 
+# ---- waiting for Postgres, and trying again ---------------------------------------------------------------------------
+# After a restart of the PC or of Docker every container starts in the same second, so the first backup can find Postgres
+# still starting (connection refused). Two bounded helpers cover that; neither loops for ever.
+
+# cm_sleep SECONDS: the one place the waiting below sleeps, so the tests can replace it and never really wait.
+cm_sleep() { sleep "$1"; }
+
+# cm_int_setting NAME DEFAULT MIN: prints the environment variable NAME as a whole number of at least MIN. An unset or empty
+# variable gives DEFAULT quietly; anything else (5x, 1.5, abc, -1, below MIN) logs one line and gives DEFAULT, so a typo
+# can never make a loop run for ever or stop the daemon. The numbers are fixed in the deployment; the variables exist for the tests.
+cm_int_setting() {
+  local name="$1" default="$2" min="$3" value
+  value="${!name-}"
+  if [[ -z "$value" ]]; then echo "$default"; return 0; fi
+  if [[ "$value" =~ ^[0-9]{1,6}$ ]] && ((10#$value >= min)); then echo "$((10#$value))"; return 0; fi
+  cm_log "ignoring $name='$value' (needs a whole number of at least $min); using $default" >&2
+  echo "$default"
+}
+
+# cm_wait_for_postgres: waits until Postgres accepts connections: at most CM_PG_WAIT_TRIES checks (default 36), CM_PG_WAIT_STEP
+# seconds apart (default 5), so about 3 minutes. Logs one line when it had to wait. Returns 1 if Postgres never answered
+# (the caller carries on: the backup then fails and the retry below takes over).
+cm_wait_for_postgres() {
+  local tries step n=1
+  tries="$(cm_int_setting CM_PG_WAIT_TRIES 36 1)"
+  step="$(cm_int_setting CM_PG_WAIT_STEP 5 0)"
+  while ! pg_isready -q -t 5; do
+    if ((n >= tries)); then
+      cm_log "Postgres did not answer after ${tries} checks; carrying on anyway"
+      return 1
+    fi
+    ((n == 1)) && cm_log "waiting for Postgres to accept connections"
+    cm_sleep "$step"
+    n=$((n + 1))
+  done
+  ((n > 1)) && cm_log "Postgres answered after waiting (check ${n})"
+  return 0
+}
+
+# cm_backup_with_retry: cm_backup_run, tried at most CM_BACKUP_TRIES times (default 5) with CM_BACKUP_RETRY_SECONDS (default
+# 60) between tries. The first success stops it, so one schedule never makes two backups. Fails after the last try.
+cm_backup_with_retry() {
+  local tries pause n=1
+  tries="$(cm_int_setting CM_BACKUP_TRIES 5 1)"
+  pause="$(cm_int_setting CM_BACKUP_RETRY_SECONDS 60 0)"
+  while true; do
+    cm_backup_run && return 0
+    ((n >= tries)) && return 1
+    cm_log "backup try ${n} of ${tries} failed; trying again in ${pause}s"
+    cm_sleep "$pause"
+    n=$((n + 1))
+  done
+}
+
 # cm_catch_up "M H * * *": the first thing the daemon does. Runs a backup now if one is due, then returns either way
 # (a failed catch-up is logged and reported by the heartbeat; the nightly schedule carries on).
 cm_catch_up() {
   if cm_backup_due "$1"; then
     cm_log "the newest backup is older than the last scheduled run (or there is none), so backing up now to catch up"
-    cm_backup_run || cm_log "the catch-up backup failed; will try again at the next scheduled time"
+    cm_wait_for_postgres
+    cm_backup_with_retry || cm_log "the catch-up backup failed; will try again at the next scheduled time"
   else
     cm_log "the newest backup is up to date; no catch-up needed"
   fi

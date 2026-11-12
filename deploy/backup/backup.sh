@@ -31,7 +31,7 @@ case "${1:-daemon}" in
       wait_s="$(cm_seconds_until "$schedule")"
       cm_log "next backup in ${wait_s}s"
       sleep "$wait_s"
-      cm_backup_run || cm_log "backup failed; will try again at the next scheduled time"
+      cm_backup_with_retry || cm_log "backup failed; will try again at the next scheduled time"
       sleep 61 # step past the scheduled minute so one run is never repeated
     done
     ;;
