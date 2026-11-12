@@ -297,12 +297,51 @@ cm_backup_due() {
   ((newest + grace < last))
 }
 
+# ---- waiting for Postgres, and trying again ---------------------------------------------------------------------------
+# After a restart of the PC or of Docker every container starts in the same second, so the first backup can find Postgres
+# still starting (connection refused). Two bounded helpers cover that; neither loops for ever.
+
+# cm_sleep SECONDS: the one place the waiting below sleeps, so the tests can replace it and never really wait.
+cm_sleep() { sleep "$1"; }
+
+# cm_wait_for_postgres: waits until Postgres accepts connections: at most CM_PG_WAIT_TRIES checks (default 36), CM_PG_WAIT_STEP
+# seconds apart (default 5), so about 3 minutes. Logs one line when it had to wait. Returns 1 if Postgres never answered
+# (the caller carries on: the backup then fails and the retry below takes over).
+cm_wait_for_postgres() {
+  local tries="${CM_PG_WAIT_TRIES:-36}" step="${CM_PG_WAIT_STEP:-5}" n=1
+  while ! pg_isready -q -t 5; do
+    if ((n >= tries)); then
+      cm_log "Postgres did not answer after ${tries} checks; carrying on anyway"
+      return 1
+    fi
+    ((n == 1)) && cm_log "waiting for Postgres to accept connections"
+    cm_sleep "$step"
+    n=$((n + 1))
+  done
+  ((n > 1)) && cm_log "Postgres answered after waiting (check ${n})"
+  return 0
+}
+
+# cm_backup_with_retry: cm_backup_run, tried at most CM_BACKUP_TRIES times (default 5) with CM_BACKUP_RETRY_SECONDS (default
+# 60) between tries. The first success stops it, so one schedule never makes two backups. Fails after the last try.
+cm_backup_with_retry() {
+  local tries="${CM_BACKUP_TRIES:-5}" pause="${CM_BACKUP_RETRY_SECONDS:-60}" n=1
+  while true; do
+    cm_backup_run && return 0
+    ((n >= tries)) && return 1
+    cm_log "backup try ${n} of ${tries} failed; trying again in ${pause}s"
+    cm_sleep "$pause"
+    n=$((n + 1))
+  done
+}
+
 # cm_catch_up "M H * * *": the first thing the daemon does. Runs a backup now if one is due, then returns either way
 # (a failed catch-up is logged and reported by the heartbeat; the nightly schedule carries on).
 cm_catch_up() {
   if cm_backup_due "$1"; then
     cm_log "the newest backup is older than the last scheduled run (or there is none), so backing up now to catch up"
-    cm_backup_run || cm_log "the catch-up backup failed; will try again at the next scheduled time"
+    cm_wait_for_postgres
+    cm_backup_with_retry || cm_log "the catch-up backup failed; will try again at the next scheduled time"
   else
     cm_log "the newest backup is up to date; no catch-up needed"
   fi
