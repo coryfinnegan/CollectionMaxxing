@@ -19,7 +19,7 @@ public static class ShelfReaderServiceCollectionExtensions
 
         // Not ValidateOnStart: the reader is optional, and a bad setting makes a read "unavailable" with a log line instead of stopping the API.
         services.AddOptions<ShelfReaderOptions>().BindConfiguration(ShelfReaderOptions.SectionName)
-            .Validate(ShelfReaderOptions.IsValid, "ShelfReader: Endpoint must be empty or an http or https address; MaxTokens, MaxLongEdge, TimeoutSeconds and MaxRepeats must be above 0.");
+            .Validate(ShelfReaderOptions.IsValid, "ShelfReader: Endpoint must be empty or an http or https address; MaxTokens, MaxLongEdge, TimeoutSeconds, MaxRepeats and SecondLookMaxTokens must be above 0.");
 
         // HttpClient.Timeout (100 s by default) would cut a 120 s read; the reader enforces TimeoutSeconds itself with a linked token.
         var client = services.AddHttpClient<IShelfReader, LlamaServerShelfReader>(http => http.Timeout = Timeout.InfiniteTimeSpan);

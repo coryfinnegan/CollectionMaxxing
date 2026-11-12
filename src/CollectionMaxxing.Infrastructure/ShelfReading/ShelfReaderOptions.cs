@@ -29,11 +29,20 @@ public sealed class ShelfReaderOptions
     /// <summary>The most times one title is kept when it repeats in a row.</summary>
     public int MaxRepeats { get; set; } = 2;
 
+    /// <summary>
+    /// After a first answer that ended normally, ask the model once more for items it has not listed, so an early stop does not lose a shelf.
+    /// Both turns together stay inside <see cref="TimeoutSeconds"/>.
+    /// </summary>
+    public bool SecondLook { get; set; } = true;
+
+    /// <summary>The token cap of the second turn.</summary>
+    public int SecondLookMaxTokens { get; set; } = 900;
+
     /// <summary>True for an absolute http or https address.</summary>
     internal static bool IsHttpUrl(string value) =>
         Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
 
     internal static bool IsValid(ShelfReaderOptions o) =>
         (string.IsNullOrWhiteSpace(o.Endpoint) || IsHttpUrl(o.Endpoint))
-        && o.MaxTokens > 0 && o.MaxLongEdge > 0 && o.TimeoutSeconds > 0 && o.MaxRepeats > 0;
+        && o.MaxTokens > 0 && o.MaxLongEdge > 0 && o.TimeoutSeconds > 0 && o.MaxRepeats > 0 && o.SecondLookMaxTokens > 0;
 }

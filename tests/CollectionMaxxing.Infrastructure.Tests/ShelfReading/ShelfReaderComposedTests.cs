@@ -34,6 +34,7 @@ public sealed class ShelfReaderComposedTests : IDisposable
         {
             ["ShelfReader:Endpoint"] = _server.Url,
             ["ShelfReader:TimeoutSeconds"] = "30",
+            ["ShelfReader:SecondLook"] = "false",
         };
         foreach (var (key, value) in extra ?? [])
         {

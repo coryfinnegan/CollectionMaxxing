@@ -31,10 +31,10 @@ public sealed class ServerReadings(
     private const int MaxCacheBytes = 4 * 1024 * 1024;
 
     /// <summary>
-    /// Part of the cache key. Bump it whenever the still maker (JPEG quality, orientation, resizing) or the reader's parsing of the model's answer changes, so a
+    /// Part of the cache key. Bump it whenever the still maker (JPEG quality, orientation, resizing) or the reader's parsing of the model's answer or the turns it takes (the second look) changes, so a
     /// reading made by the older code is not served. The server file llama-server runs is identified by <c>ShelfReader:Model</c> only: a swapped model file needs a new name.
     /// </summary>
-    public const int ReaderVersion = 1;
+    public const int ReaderVersion = 2;
 
     private static readonly SemaphoreSlim OneAtATime = new(1, 1);
 
@@ -148,7 +148,7 @@ public sealed class ServerReadings(
             return null;
         }
 
-        var key = JsonSerializer.Serialize(new { ReaderVersion = readerVersion, settings.Model, settings.Prompt, settings.MaxTokens, settings.MaxLongEdge, settings.MaxRepeats });
+        var key = JsonSerializer.Serialize(new { ReaderVersion = readerVersion, settings.Model, settings.Prompt, settings.MaxTokens, settings.MaxLongEdge, settings.MaxRepeats, settings.SecondLook, settings.SecondLookMaxTokens });
         return Path.Combine(Path.GetFullPath(evals.Value.ResultsPath), CacheFolder, Hex(SHA256.HashData(picture)) + "-" + Hex(Sha(key)) + ".json");
     }
 

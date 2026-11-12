@@ -110,9 +110,17 @@ public sealed class ServerReadingsTests : IDisposable
         await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", Prompt = "List what you see." }).ReadAsync("c1", false, CancellationToken.None);
         await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", MaxTokens = 100 }).ReadAsync("c1", false, CancellationToken.None);
         await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", MaxLongEdge = 512 }).ReadAsync("c1", false, CancellationToken.None);
+        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", SecondLook = false }).ReadAsync("c1", false, CancellationToken.None);
+        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", SecondLookMaxTokens = 450 }).ReadAsync("c1", false, CancellationToken.None);
 
-        reader.Calls.ShouldBe(5);
-        CacheFiles().Count.ShouldBe(5);
+        reader.Calls.ShouldBe(7);
+        CacheFiles().Count.ShouldBe(7);
+    }
+
+    [Fact]
+    public void The_reader_version_was_bumped_for_the_second_look()
+    {
+        ServerReadings.ReaderVersion.ShouldBeGreaterThanOrEqualTo(2);
     }
 
     [Fact]
