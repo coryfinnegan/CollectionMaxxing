@@ -43,7 +43,12 @@ public class IdentifyGroundingLeadingWordTests
 
     private static ProviderRelease FilmRelease(string title, int id, int year) => new()
     {
-        Provider = "tmdb", ExternalId = $"movie/{id}", WorkKey = $"movie/{id}", Title = title, Kind = WorkKind.Film, Year = year,
+        Provider = "tmdb",
+        ExternalId = $"movie/{id}",
+        WorkKey = $"movie/{id}",
+        Title = title,
+        Kind = WorkKind.Film,
+        Year = year,
     };
 
     private static Films FinalFilms() => new(new()

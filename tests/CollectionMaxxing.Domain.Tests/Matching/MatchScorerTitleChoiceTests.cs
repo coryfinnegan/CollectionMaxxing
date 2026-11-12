@@ -12,7 +12,11 @@ public class MatchScorerTitleChoiceTests
 
     private static CandidateRelease Release(string key, string title, WorkKind kind, int? year = null, params string[] creators) => new()
     {
-        Key = key, Title = title, Kind = kind, Year = year, Creators = creators,
+        Key = key,
+        Title = title,
+        Kind = kind,
+        Year = year,
+        Creators = creators,
     };
 
     private static ReadItem BookRead(string title, string? creator = "Sarah J. Maas") => new() { Title = title, Kind = WorkKind.Book, Creator = creator };
