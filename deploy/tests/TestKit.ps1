@@ -115,6 +115,18 @@ function New-GoodComposeConfig {
     }
 }
 
+function Get-TestReaderGpuLog {
+    <# The start of a llama-server log that found the card (the shape of the lines, not a copy of a real log). #>
+    @('ggml_cuda_init: found 1 CUDA devices:', '  Device 0: NVIDIA GeForce RTX 4070 Ti, compute capability 8.9, VMM: yes',
+        'load_tensors: offloaded 37/37 layers to GPU', 'srv  server_run: model loaded')
+}
+
+function Get-TestReaderCpuLog {
+    <# The start of a llama-server log on a host whose CUDA could not start inside Docker (issue #802). #>
+    @('ggml_cuda_init: failed to initialize CUDA: named symbol not found', 'warning: no usable GPU found, --gpu-layers option will be ignored',
+        'srv  server_run: model loaded')
+}
+
 function New-FakeMachine {
     <#
       Installs $global:CmRunner. Options (all optional):
@@ -176,6 +188,15 @@ function New-FakeMachine {
         ApiUnhealthyWithReader  the api answers 503 while it has the reader's endpoint
         ApiEndpoint             (read back) the endpoint the api was last started with; `docker inspect --format {{json .Config.Env}}` reports it
         ReaderThrows            make the reader's `compose ps` throw (an unexpected crash inside the reader step)
+        ReaderId, ReaderStartedAt  the running reader container's id and start time (`docker inspect`); each new start changes both
+        ReaderLabelHash         the running container's com.docker.compose.config-hash label (default cfg-hash-1)
+        ComposeHash             what `compose config --hash shelf-reader` prints for the file at the deployed commit (default cfg-hash-1)
+        ComposeHashFails        make `compose config --hash shelf-reader` fail
+        ReaderInspectFails      make the `docker inspect` of the reader container fail
+        ReaderLog               the current container's start log (`docker logs`; default: llama.cpp finding the card)
+        ReaderLogOnStart        the log every container that `up` starts gets (default: the card found)
+        ReaderLogFails          make `docker logs` of the reader fail
+        ReaderUpKeepsHash       `up` recreates the container but its label keeps the old hash (compose disagreeing with itself)
     #>
     param([hashtable]$Opt = @{})
     $m = @{
@@ -195,6 +216,9 @@ function New-FakeMachine {
     $m.BackupHealth = 'healthy'; $m.BackupContainerMissing = $false; $m.BackupPsFails = $false; $m.BackupInspectFails = $false
     $m.Gpu = $false; $m.ReaderHealth = 'missing'; $m.ReaderStartsAs = 'healthy'; $m.ReaderUpFails = $false; $m.ReaderPullFails = $false
     $m.ReaderImagePresent = $false; $m.ApiUnhealthyWithReader = $false; $m.ApiEndpoint = ''; $m.ReaderThrows = $false
+    $m.ReaderId = 'reader-c0'; $m.ReaderStartedAt = '2026-11-12T08:00:00.123456789Z'; $m.ReaderStarts = 0
+    $m.ReaderLabelHash = 'cfg-hash-1'; $m.ComposeHash = 'cfg-hash-1'; $m.ComposeHashFails = $false; $m.ReaderInspectFails = $false
+    $m.ReaderLog = @(Get-TestReaderGpuLog); $m.ReaderLogOnStart = @(Get-TestReaderGpuLog); $m.ReaderLogFails = $false; $m.ReaderUpKeepsHash = $false
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     if ($m.ImageRows -isnot [System.Collections.Generic.List[string]]) { $m.ImageRows = [System.Collections.Generic.List[string]]::new([string[]]@($m.ImageRows)) }
     $global:CmMachine = $m
@@ -227,9 +251,24 @@ function New-FakeMachine {
                     if ($m.ReaderHealth -eq 'missing') { return & $ok }
                     $state = if ($m.ReaderHealth -in 'healthy', 'starting', 'unhealthy') { 'running' } else { $m.ReaderHealth }
                     $health = if ($m.ReaderHealth -in 'healthy', 'starting', 'unhealthy') { $m.ReaderHealth } else { '' }
-                    return & $ok @(([pscustomobject]@{ Service = 'shelf-reader'; Name = 'collectionmaxxing-shelf-reader-1'; State = $state; Health = $health } | ConvertTo-Json -Compress))
+                    return & $ok @(([pscustomobject]@{ ID = $m.ReaderId; Service = 'shelf-reader'; Name = 'collectionmaxxing-shelf-reader-1'; State = $state; Health = $health } | ConvertTo-Json -Compress))
                 }
-                if ($line -match '^compose .* up -d --no-deps shelf-reader$') { if ($m.ReaderUpFails) { return [pscustomobject]@{ ExitCode = 1; Output = @('Error response from daemon: could not select device driver "nvidia" with capabilities: [[gpu]]') } } $m.ReaderHealth = $m.ReaderStartsAs; return & $ok }
+                if ($line -match '^compose .* up -d --no-deps shelf-reader$') {
+                    if ($m.ReaderUpFails) { return [pscustomobject]@{ ExitCode = 1; Output = @('Error response from daemon: could not select device driver "nvidia" with capabilities: [[gpu]]') } }
+                    # Like compose: a running container whose definition is unchanged is left as it is; otherwise a new start.
+                    if ($m.ReaderHealth -in 'missing', 'exited', 'stopped', 'restarting' -or $m.ReaderLabelHash -ne $m.ComposeHash) {
+                        $m.ReaderStarts++
+                        $m.ReaderId = "reader-c$($m.ReaderStarts)"
+                        $m.ReaderStartedAt = ([DateTime](Get-CmNow)).ToUniversalTime().AddSeconds($m.ReaderStarts).ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+                        if (-not $m.ReaderUpKeepsHash) { $m.ReaderLabelHash = $m.ComposeHash }
+                        $m.ReaderLog = @($m.ReaderLogOnStart)
+                        $m.ReaderHealth = $m.ReaderStartsAs
+                    }
+                    return & $ok
+                }
+                if ($line -match '^compose .* config --hash shelf-reader$') { if ($m.ComposeHashFails) { return & $fail } return & $ok @("shelf-reader $($m.ComposeHash)") }
+                if ($line -match '^inspect \S+ --format \{\{\.State\.StartedAt\}\}') { if ($m.ReaderInspectFails) { return & $fail } return & $ok @("$($m.ReaderStartedAt)|$($m.ReaderLabelHash)") }
+                if ($line -match '^logs ') { if ($m.ReaderLogFails) { return & $fail } return & $ok @($m.ReaderLog) }
                 if ($line -match '^compose .* stop shelf-reader$') { if ($m.ReaderHealth -ne 'missing') { $m.ReaderHealth = 'exited' } return & $ok }
                 if ($line -match '^pull') { if ($m.PullThrows) { throw 'docker exploded' }; if ($line -match ':main(\s|$)') { $m.MainPulls++ }; if ($m.PullFails) { return & $fail } return & $ok }
                 if ($line -match '^image inspect (\S+)') {

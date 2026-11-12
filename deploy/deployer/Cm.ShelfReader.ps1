@@ -21,9 +21,17 @@
 #     A download is alive while its .partial grows from one pass to the next; a second curl is never started on a file
 #     a live one is writing (Test-CmDownloadRunning).
 #   * CM_SHELF_READER=0 in .env, or a host where nvidia-smi lists no card: nothing is pulled, downloaded or started.
+#   * The card inside Docker (#802): a healthy reader is not proof that llama.cpp uses the card (it falls back to the
+#     processor). Its start log is read once per container start, when it is first seen healthy and before the api is
+#     given the endpoint; "no usable GPU found" or "failed to initialize CUDA" is a failure. A log that cannot be read
+#     waits a poll.
+#   * A changed definition reaches a running reader (#802): compose's config hash for shelf-reader at the deployed commit
+#     against the com.docker.compose.config-hash label of the running container. Different: the same `up -d --no-deps
+#     shelf-reader` recreates it, once per definition; the start window and the card check apply to the new start, and
+#     the api keeps its endpoint (no restart). Either hash unreadable: nothing happens that poll.
 #
 # Lock budget: every external call here has a timeout, so one pass of this step is bounded (Get-CmShelfReaderWorstCaseSeconds:
-# about 16 minutes on the start path, 12 on the switch-on path, plus hashing a finished 6 GB file once), well under the
+# about 17 minutes on the start or recreate path, 13 on the switch-on path, plus hashing a finished 6 GB file once), well under the
 # 30-minute stale-lock alert (CmStaleLockMinutes) even with the quiet poll's image clean-up (90 seconds) before it.
 #Requires -Version 7.0
 
@@ -48,6 +56,8 @@ $script:CmShelfReaderCallSeconds = 30           # nvidia-smi, image inspect, com
 $script:CmShelfReaderPullSeconds = 600          # the 2.6 GB image pull (docker keeps the finished layers for the next try)
 $script:CmShelfReaderUpSeconds = 120            # one `compose up -d --no-deps` (the reader or the api)
 $script:CmShelfReaderStopSeconds = 60           # `compose stop shelf-reader`
+# What llama.cpp logs at start when CUDA does not come up inside the container and it falls back to the processor (#802).
+$script:CmShelfReaderNoCardPattern = '(?i)no usable GPU found|failed to initialize CUDA'
 
 function Get-CmShelfReaderFiles { <# The two pinned model files. Tests set $global:CmShelfReaderFiles to tiny ones. #> if ($global:CmShelfReaderFiles) { return @($global:CmShelfReaderFiles) } @($script:CmShelfReaderPins) }
 
@@ -117,8 +127,10 @@ function Get-CmShelfReaderWorstCaseSeconds {
     $call = $script:CmShelfReaderCallSeconds
     $git = 60   # `git show` of the deployed compose file from the local clone
     $smoke = [math]::Max(1, $Ctx.SmokeRetries) * (5 + $Ctx.SmokeDelaySeconds)   # curl -m 5 per try
-    $start = $call + $git + $call + $call + $script:CmShelfReaderPullSeconds + $script:CmShelfReaderUpSeconds + $script:CmShelfReaderStopSeconds
-    $switch = $call + $git + $call + (2 * $call) + (2 * ($script:CmShelfReaderUpSeconds + $smoke)) + $script:CmShelfReaderStopSeconds
+    # The start path also covers a recreation (#802): the container's start and hash and compose's hash come before it.
+    $start = $call + $git + $call + (2 * $call) + $call + $script:CmShelfReaderPullSeconds + $script:CmShelfReaderUpSeconds + $script:CmShelfReaderStopSeconds
+    # The switch-on path reads the container, compose's hash and the start log (the card check) before the api.
+    $switch = $call + $git + $call + (3 * $call) + (2 * $call) + (2 * ($script:CmShelfReaderUpSeconds + $smoke)) + $script:CmShelfReaderStopSeconds
     [math]::Max($start, $switch)
 }
 
@@ -130,6 +142,11 @@ function Get-CmShelfReaderPlan {
     Format-CmCommand 'docker' @('pull', '--quiet', $script:CmShelfReaderImage)
     Format-CmCommand 'docker' (Get-CmGpuComposeArgs $Ctx @('up', '-d', '--no-deps', $script:CmShelfReaderService)) @{ CM_TAG = '<deployed sha>' }
     Format-CmCommand 'docker' (Get-CmGpuComposeArgs $Ctx @('ps', '-a', '--format', 'json', $script:CmShelfReaderService)) @{ CM_TAG = '<deployed sha>' }
+    '(a running reader: its start and config hash, against compose''s; a different hash recreates it with the same up)'
+    Format-CmCommand 'docker' @('inspect', '<reader container>', '--format', '{{.State.StartedAt}}|{{index .Config.Labels "com.docker.compose.config-hash"}}')
+    Format-CmCommand 'docker' (Get-CmGpuComposeArgs $Ctx @('config', '--hash', $script:CmShelfReaderService)) @{ CM_TAG = '<deployed sha>' }
+    '(once per container start, when it is first healthy: the start log, checked for a graphics card llama.cpp cannot use)'
+    Format-CmCommand 'docker' @('logs', '--since', '<start>', '--until', '<start + 10 minutes>', '<reader container>')
     '(once the reader is healthy, and only when the running api does not have the endpoint yet:)'
     Format-CmCommand 'docker' (Get-CmComposeArgs $Ctx @('up', '-d', '--no-deps', 'api')) @{ CM_TAG = '<deployed sha>'; CM_SHELF_READER_ENDPOINT = $script:CmShelfReaderEndpointUrl }
     '(a reader that fails or is switched off is stopped; the api is left alone and the next deploy brings it up without the endpoint)'
@@ -302,26 +319,91 @@ function Update-CmShelfReaderFiles {
     [pscustomobject]@{ Ready = $false; Note = $note }
 }
 
-function Get-CmShelfReaderHealth {
-    <# The reader container as compose sees it: healthy, starting, unhealthy, restarting, stopped, missing, or unknown (compose could not say). Read only. #>
+function Get-CmShelfReaderStatus {
+    <#
+      The reader container as compose sees it: @{ Health; Id }. Health is healthy, starting, unhealthy, restarting,
+      stopped, missing, or unknown (compose could not say); Id is the container's id (or its name), '' when there is none. Read only.
+    #>
     param($RCtx, [string]$Tag)
+    $status = { param($health, $id = '') [pscustomobject]@{ Health = $health; Id = "$id" } }
     $r = Invoke-Cm -Command 'docker' -Env @{ CM_TAG = $Tag } -Arguments (Get-CmGpuComposeArgs $RCtx @('ps', '-a', '--format', 'json', $script:CmShelfReaderService)) -TimeoutSeconds $script:CmShelfReaderCallSeconds
-    if ($r.ExitCode -ne 0) { return 'unknown' }
+    if ($r.ExitCode -ne 0) { return & $status 'unknown' }
     $text = (@($r.Output) -join "`n").Trim()
-    if (-not $text -or $text -eq '[]') { return 'missing' }
+    if (-not $text -or $text -eq '[]') { return & $status 'missing' }
     try {
         $rows = if ($text.StartsWith('[')) { @($text | ConvertFrom-Json) } else { @($text -split "`r?`n" | Where-Object { "$_".Trim() } | ForEach-Object { $_ | ConvertFrom-Json }) }
     }
-    catch { return 'unknown' }
+    catch { return & $status 'unknown' }
     $row = @($rows | Where-Object { "$($_.Service)" -eq $script:CmShelfReaderService }) | Select-Object -First 1
-    if (-not $row) { return 'missing' }
+    if (-not $row) { return & $status 'missing' }
+    $id = if ("$($row.ID)".Trim()) { "$($row.ID)".Trim() } else { "$($row.Name)".Trim() }
     switch ("$($row.State)") {
         'running' {
-            switch ("$($row.Health)") { 'healthy' { return 'healthy' } 'unhealthy' { return 'unhealthy' } default { return 'starting' } }
+            switch ("$($row.Health)") { 'healthy' { return & $status 'healthy' $id } 'unhealthy' { return & $status 'unhealthy' $id } default { return & $status 'starting' $id } }
         }
-        'restarting' { return 'restarting' }
-        default { return 'stopped' }
+        'restarting' { return & $status 'restarting' $id }
+        default { return & $status 'stopped' $id }
     }
+}
+
+function Get-CmShelfReaderHealth {
+    <# The reader container's health alone (see Get-CmShelfReaderStatus). Read only. #>
+    param($RCtx, [string]$Tag)
+    (Get-CmShelfReaderStatus -RCtx $RCtx -Tag $Tag).Health
+}
+
+function Get-CmShelfReaderContainer {
+    <#
+      The running reader container's start time and the config hash compose stamped on it when it created it
+      (com.docker.compose.config-hash): @{ StartedAt; ConfigHash }. $null when docker cannot say. Read only.
+    #>
+    param([string]$Id)
+    if (-not $Id) { return $null }
+    $r = Invoke-Cm -Command 'docker' -Arguments @('inspect', $Id, '--format', '{{.State.StartedAt}}|{{index .Config.Labels "com.docker.compose.config-hash"}}') -TimeoutSeconds $script:CmShelfReaderCallSeconds
+    if ($r.ExitCode -ne 0) { return $null }
+    $line = "$(@($r.Output) | Where-Object { "$_".Contains('|') } | Select-Object -First 1)".Trim()
+    if (-not $line) { return $null }
+    $parts = $line -split '\|', 2
+    $hash = "$($parts[1])".Trim()
+    if ($hash -eq '<no value>') { $hash = '' }
+    [pscustomobject]@{ StartedAt = "$($parts[0])".Trim(); ConfigHash = $hash }
+}
+
+function Get-CmShelfReaderWantedHash {
+    <#
+      The config hash compose gives shelf-reader in the compose file at the deployed commit (`docker compose config
+      --hash shelf-reader` prints "shelf-reader <hash>"), the same hash compose stamps on a container it creates from it.
+      '' when compose cannot say. Read only.
+    #>
+    param($RCtx, [string]$Tag, [string]$Endpoint = '')
+    $r = Invoke-Cm -Command 'docker' -Env @{ CM_TAG = $Tag; CM_SHELF_READER_ENDPOINT = $Endpoint } -Arguments (Get-CmGpuComposeArgs $RCtx @('config', '--hash', $script:CmShelfReaderService)) -TimeoutSeconds $script:CmShelfReaderCallSeconds
+    if ($r.ExitCode -ne 0) { return '' }
+    foreach ($l in @($r.Output)) { if ("$l".Trim() -match "^$([regex]::Escape($script:CmShelfReaderService))\s+(\S+)$") { return $Matches[1] } }
+    ''
+}
+
+function Get-CmShelfReaderCardVerdict {
+    <#
+      Reads the start log of one container start (docker logs from its start time to the end of the start window, a few
+      dozen lines) and says whether llama.cpp could use the graphics card: @{ Verdict = ok | bad | unknown; Line }. bad
+      when the log has one of the "no card" markers (#802); unknown when the log cannot be read. Read only.
+    #>
+    param([string]$Id, [string]$StartedAt)
+    $verdict = { param($v, $line = '') [pscustomobject]@{ Verdict = $v; Line = $line } }
+    $start = $null
+    try { $start = ConvertTo-CmUtc $StartedAt } catch { }
+    if (-not $Id -or -not $start -or $start.Year -lt 2000) { return & $verdict 'unknown' }
+    $since = ConvertTo-CmEpoch $start
+    $until = $since + $script:CmShelfReaderStartMinutes * 60
+    $r = Invoke-Cm -Command 'docker' -Arguments @('logs', '--since', "$since", '--until', "$until", $Id) -TimeoutSeconds $script:CmShelfReaderCallSeconds
+    if ($r.ExitCode -ne 0) { return & $verdict 'unknown' }
+    $hit = @($r.Output) | Where-Object { "$_" -match $script:CmShelfReaderNoCardPattern } | Select-Object -First 1
+    if ($null -ne $hit) {
+        $line = ("$hit" -replace '[^\x20-\x7E]', ' ').Trim()
+        if ($line.Length -gt 200) { $line = $line.Substring(0, 200) }
+        return & $verdict 'bad' $line
+    }
+    & $verdict 'ok'
 }
 
 function Get-CmRunningApiEndpoint {
@@ -438,8 +520,10 @@ function Invoke-CmShelfReader {
         if (-not $rc) { Write-CmLog "shelf reader: could not read the compose file at $($tag.Substring(0, 12)) from the clone; the next poll tries again" 'WARN'; return }
 
         # 5. The container.
-        $health = Get-CmShelfReaderHealth -RCtx $rc -Tag $tag
+        $status = Get-CmShelfReaderStatus -RCtx $rc -Tag $tag
+        $health = $status.Health
         if ($health -eq 'unknown') { return }
+        $short = $tag.Substring(0, 12)
         $start = {
             $have = Invoke-Cm -Command 'docker' -Arguments @('image', 'inspect', $script:CmShelfReaderImage, '--format', '{{.Id}}') -TimeoutSeconds $script:CmShelfReaderCallSeconds
             if ($have.ExitCode -ne 0) {
@@ -456,8 +540,52 @@ function Invoke-CmShelfReader {
             ''
         }
 
+        # 6. A running reader must match the compose file at the deployed commit (#802): compose's config hash for the
+        # service against the hash compose stamped on the container. Either one unreadable: nothing this poll. Changed:
+        # recreated with the same `up`, once per definition, and judged again from its new start (start window, card check).
+        $box = $null
+        if ($health -in 'healthy', 'starting', 'unhealthy') {
+            $box = Get-CmShelfReaderContainer -Id $status.Id
+            $want = if ($box -and $box.ConfigHash) { Get-CmShelfReaderWantedHash -RCtx $rc -Tag $tag -Endpoint (Get-CmShelfReaderEndpoint -Ctx $Ctx) } else { '' }
+            if (-not $box -or -not $box.ConfigHash -or -not $want) {
+                & $note "the reader is $health, but whether it matches the compose file at $short could not be read; the next poll looks again"
+                return
+            }
+            if ($want -ne $box.ConfigHash) {
+                if ("$($sr['recreatedFor'])" -ne $want) {
+                    $sr['recreatedFor'] = $want
+                    $why = & $start
+                    if ($why) { & $fail "could not recreate the reader for its changed definition at ${short}: $why"; return }
+                    $sr['startedAt'] = $nowSec
+                    if ($sr['on'] -eq $true) { $sr['downSince'] = $nowSec }
+                    $keeps = if ($sr['on'] -eq $true) { '; the api keeps its endpoint and reports the reader unavailable while it loads' } else { '' }
+                    Write-CmLog "shelf reader: its definition changed at $short, so the container was recreated; it is checked again once healthy$keeps"
+                    return
+                }
+                if ("$($sr['stuckFor'])" -ne $want) {
+                    $sr['stuckFor'] = $want
+                    Write-CmLog "shelf reader: the container still does not match the compose file at $short after it was recreated for it; it is left as it is" 'WARN'
+                }
+            }
+        }
+        # 7. The card inside Docker (#802): read once per container start, when it is first seen healthy, before the api
+        # is given the endpoint. A start log that says the card is not usable is a failure; one that cannot be read waits a poll.
+        $cardCheck = {
+            $key = "$($status.Id)|$($box.StartedAt)"
+            if ("$($sr['checkedStart'])" -eq $key) { return [pscustomobject]@{ Verdict = 'ok'; Line = '' } }
+            $v = Get-CmShelfReaderCardVerdict -Id $status.Id -StartedAt $box.StartedAt
+            if ($v.Verdict -eq 'ok') { $sr['checkedStart'] = $key; Write-CmLog 'shelf reader: its start log shows no sign that the graphics card is unusable' }
+            $v
+        }
+        $noCard = { param($line) "the reader started but cannot use the graphics card inside Docker (its log says: $line)" }
+
         if ($sr['on'] -eq $true) {
-            if ($health -eq 'healthy') { $sr['downSince'] = 0; & $note 'on'; return }
+            if ($health -eq 'healthy') {
+                $card = & $cardCheck
+                if ($card.Verdict -eq 'unknown') { & $note 'on, but the reader''s start log could not be read to check the graphics card; the next poll tries again'; return }
+                if ($card.Verdict -eq 'bad') { & $fail (& $noCard $card.Line); return }
+                $sr['downSince'] = 0; & $note 'on'; return
+            }
             if ((ConvertTo-CmLong $sr['downSince']) -le 0) { $sr['downSince'] = $nowSec }
             if ($health -in 'missing', 'stopped') {
                 $why = & $start
@@ -493,6 +621,9 @@ function Invoke-CmShelfReader {
             }
             'healthy' {
                 if ((ConvertTo-CmLong $sr['startedAt']) -le 0) { $sr['startedAt'] = $nowSec }
+                $card = & $cardCheck
+                if ($card.Verdict -eq 'unknown') { & $note 'healthy, but its start log could not be read to check the graphics card; the next poll tries again'; return }
+                if ($card.Verdict -eq 'bad') { & $fail (& $noCard $card.Line); return }
                 $running = Get-CmRunningApiEndpoint -RCtx $rc -Tag $tag
                 if ($null -eq $running) { & $note 'healthy, but the running api''s settings could not be read; the next poll tries again'; return }
                 if ($running -ne $script:CmShelfReaderEndpointUrl) {

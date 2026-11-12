@@ -18,6 +18,8 @@ $script:CmShelfReaderImageDigest = 'sha256:bb29527ecb3da442d9459591c252351d957b6
 $script:CmShelfReaderImage = "$($script:CmShelfReaderImageRepo):server-cuda-b12282@$($script:CmShelfReaderImageDigest)"
 # The compose network only the api and the reader share (llama-server has no API key and allows every origin).
 $script:CmShelfReaderNetwork = 'reader'
+# The one host path shelf-reader may bind besides the models folder (#802): Docker Desktop's WSL 2 driver folder.
+$script:CmWslDriversPath = '/usr/lib/wsl/drivers'
 
 function Initialize-Cm {
     <# Sets the run mode. Call once at the top of an entry script. #>
@@ -310,7 +312,8 @@ function Test-CmConfig {
       service and the container path, never a host path, because a host path may come from .env.
       The shelf reader (#795): shelf-reader runs only the pinned image, publishes no port, sits only on the internal
       `reader` network (which no service but the api may join), and binds nothing but folders inside the models folder
-      (Get-CmModelsRoot), read-only. The models folder is allowed for shelf-reader alone, never for another service, and
+      (Get-CmModelsRoot), read-only, plus exactly one more bind (#802): /usr/lib/wsl/drivers at the same path, read-only
+      (Docker Desktop's WSL 2 driver folder). The models folder is allowed for shelf-reader alone, never for another service, and
       a models folder that is a drive root or holds the stack's own folders is refused. Only shelf-reader may reserve a
       device (deploy.resources.reservations.devices, or gpus), and its reservation must be exactly one nvidia GPU (count
       1, no device_ids, capabilities [gpu]). No service may set runtime:, and no other service may set
@@ -403,7 +406,16 @@ function Test-CmConfig {
                 }
                 if ($type -ne 'bind') { $problems.Add("service '$name' has a '$type' mount at $target, a kind of mount the guard does not allow"); continue }
                 if ($name -eq 'shelf-reader') {
-                    # The reader binds the models folder and nothing else, read-only.
+                    # The WSL driver folder (#802): exactly that path, at the same path, read-only. It is a path inside
+                    # Docker Desktop's Linux VM, compared as written (case-sensitive), never resolved on Windows.
+                    if ($source -ceq $script:CmWslDriversPath -or $target -ceq $script:CmWslDriversPath) {
+                        if ($source -cne $script:CmWslDriversPath -or $target -cne $script:CmWslDriversPath) {
+                            $problems.Add("service 'shelf-reader' mounts the WSL driver folder other than from $($script:CmWslDriversPath) to the same path (container path $target)")
+                        }
+                        elseif ($v.read_only -ne $true) { $problems.Add("service 'shelf-reader' mounts the WSL driver folder writable (container path $target); it may only be mounted read-only") }
+                        continue
+                    }
+                    # Otherwise the reader binds the models folder and nothing else, read-only.
                     if (-not $modelsRoot -or -not (Test-CmPathUnder -Path $source -Root $modelsRoot)) { $problems.Add("service 'shelf-reader' bind-mounts a host folder outside the models folder (container path $target)") }
                     elseif ($v.read_only -ne $true) { $problems.Add("service 'shelf-reader' mounts the models folder writable (container path $target); it may only be mounted read-only") }
                     continue

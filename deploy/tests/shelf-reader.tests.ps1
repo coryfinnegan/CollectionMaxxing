@@ -282,6 +282,64 @@ Test-Case 'shelf reader guard: the reader is only on its internal network, and o
     Assert-Match ((Get-GuardProblems $cfg) -join ';') 'must exist and be internal'
 }
 
+Test-Case 'shelf reader compose: the WSL driver folder is mounted read-only at its own path, on the reader only (#802)' {
+    $config = Get-RealComposeConfig -Profiles @('gpu')
+    $drivers = @($config.services.'shelf-reader'.volumes | Where-Object { $_.target -eq '/usr/lib/wsl/drivers' })
+    Assert-Equal 1 $drivers.Count 'the reader mounts the driver folder'
+    Assert-Equal 'bind' "$($drivers[0].type)"
+    Assert-Equal '/usr/lib/wsl/drivers' "$($drivers[0].source)" 'a path inside Docker Desktop''s Linux VM, kept as written (not resolved against the compose folder or a drive)'
+    Assert-True ($drivers[0].read_only -eq $true) 'read-only'
+    foreach ($p in $config.services.PSObject.Properties) {
+        if ($p.Name -eq 'shelf-reader') { continue }
+        Assert-Equal 0 @($p.Value.volumes | Where-Object { "$($_.source)" -match 'wsl' -or "$($_.target)" -match 'wsl' }).Count "$($p.Name) does not mount the driver folder"
+    }
+}
+
+function New-GuardDriversMount {
+    param([string]$Source = '/usr/lib/wsl/drivers', [string]$Target = '/usr/lib/wsl/drivers', [bool]$ReadOnly = $true)
+    [pscustomobject]@{ type = 'bind'; source = $Source; target = $Target; read_only = $ReadOnly }
+}
+
+Test-Case 'shelf reader guard: the reader may mount the WSL driver folder read-only at its own path (#802)' {
+    $reader = New-GuardReader; $reader.volumes = @($reader.volumes) + @(New-GuardDriversMount)
+    $problems = @(Get-GuardProblems (New-GuardConfigWithReader $reader))
+    Assert-Equal 0 $problems.Count ($problems -join '; ')
+}
+
+Test-Case 'shelf reader guard: the driver folder writable, at another target, or from another source is refused (#802)' {
+    foreach ($case in @(
+            @{ Mount = (New-GuardDriversMount -ReadOnly $false); Want = 'writable' }
+            @{ Mount = (New-GuardDriversMount -Target '/drivers'); Want = 'driver folder' }
+            @{ Mount = (New-GuardDriversMount -Target '/usr/lib/wsl'); Want = 'driver folder' }
+            @{ Mount = (New-GuardDriversMount -Source 'C:\Users\someone'); Want = 'driver folder' }
+            @{ Mount = (New-GuardDriversMount -Source '/usr/lib/wsl'); Want = 'driver folder' }
+            @{ Mount = (New-GuardDriversMount -Source '/usr/lib/wsl' -Target '/usr/lib/wsl'); Want = 'outside the models folder' }
+            @{ Mount = (New-GuardDriversMount -Source '/usr/lib/wsl/drivers/..' -Target '/x'); Want = 'outside the models folder' }
+            @{ Mount = (New-GuardDriversMount -Source '/usr/lib/wsl/drivers/sub' -Target '/x'); Want = 'outside the models folder' }
+            @{ Mount = (New-GuardDriversMount -Source '/USR/LIB/WSL/DRIVERS' -Target '/USR/LIB/WSL/DRIVERS'); Want = 'outside the models folder' }
+            @{ Mount = (New-GuardDriversMount -Source '/' -Target '/host'); Want = 'outside the models folder' }
+        )) {
+        $m = $case.Mount
+        $what = "$($m.source) -> $($m.target) ro=$($m.read_only)"
+        $reader = New-GuardReader; $reader.volumes = @($reader.volumes) + @($m)
+        $problems = @(Get-GuardProblems (New-GuardConfigWithReader $reader))
+        Assert-Equal 1 $problems.Count "[$what]: $($problems -join '; ')"
+        Assert-Match $problems[0] "service 'shelf-reader'" $what
+        Assert-Match $problems[0] $case.Want $what
+    }
+}
+
+Test-Case 'shelf reader guard: the WSL driver folder on any other service is refused, even read-only (#802)' {
+    foreach ($svc in 'api', 'backup') {
+        $cfg = New-GuardConfigWithReader
+        if (-not $cfg.services.$svc) { $cfg.services | Add-Member -NotePropertyName $svc -NotePropertyValue ([pscustomobject]@{}) }
+        $cfg.services.$svc | Add-Member -NotePropertyName volumes -NotePropertyValue @(New-GuardDriversMount) -Force
+        $problems = @(Get-GuardProblems $cfg)
+        Assert-Equal 1 $problems.Count "[$svc]: $($problems -join '; ')"
+        Assert-Match $problems[0] "service '$svc' bind-mounts a host folder outside"
+    }
+}
+
 Test-Case 'shelf reader compose: the reader is on the internal reader network only, the api on both' {
     $config = Get-RealComposeConfig -Profiles @('gpu')
     Assert-Equal 'reader' (@($config.services.'shelf-reader'.networks.PSObject.Properties.Name) -join ',')
@@ -845,9 +903,10 @@ Test-Case 'shelf reader: every call the step makes has a timeout, and one pass f
         Add-TestReaderFiles $root
         foreach ($i in 1..3) { Invoke-TestReaderPass $root | Out-Null }
         $mine = @($global:CmCalls | Where-Object {
-                $_.Command -eq 'nvidia-smi' -or ($_.Command -eq 'docker' -and $_.Display -match 'shelf-reader|llama\.cpp|--no-deps api|ps -q api|\.Config\.Env')
+                $_.Command -eq 'nvidia-smi' -or ($_.Command -eq 'docker' -and $_.Display -match 'shelf-reader|llama\.cpp|--no-deps api|ps -q api|\.Config\.Env|docker logs |\.State\.StartedAt|config --hash')
             })
         Assert-True ($mine.Count -ge 10) "the step made its calls ($($mine.Count))"
+        foreach ($kind in 'docker logs ', '\.State\.StartedAt', 'config --hash') { Assert-True (@($mine | Where-Object { $_.Display -match $kind }).Count -ge 1) "the step read $kind" }
         foreach ($c in $mine) { Assert-True ($c.TimeoutSeconds -gt 0) "no timeout on: $($c.Display)" }
         Assert-True (@($mine | Where-Object { $_.Display -match 'docker pull' })[0].TimeoutSeconds -le 600) 'the pull is capped at 10 minutes'
         $worst = Get-CmShelfReaderWorstCaseSeconds -Ctx (New-CmContext -Root $root)
@@ -866,5 +925,250 @@ Test-Case 'shelf reader: a dry run starts, downloads and changes nothing' {
         Assert-Equal 0 $global:CmDetachedStarts.Count
         Assert-Equal 0 (Get-ReaderUps).Count
         Assert-True ((Get-CmPlan -Ctx (New-TestContext -Root $root)) -join "`n" -match 'shelf') 'the plan describes the reader'
+    }
+}
+
+# ---- the deployer: the card inside Docker, and a changed definition (#802) ---------------------------------------------------
+
+function Get-ReaderLogReads { @(Get-Calls 'docker' '*docker logs *') }
+function Get-ReaderStops { @(Get-Calls 'docker' '*--profile gpu*stop shelf-reader*') }
+function Get-ReaderOnState {
+    <# The deployer's state with the reader on, as a pass before #802 left it (no record of a checked container start). #>
+    $s = Get-UpToDateState
+    $s['shelfReader'] = @{ on = $true; note = 'on'; startedAt = 1762934400; downSince = 0; retryAt = 0; cardMisses = 0; files = @{}; downloads = @{} }
+    $s
+}
+function Get-ReaderStateJson { param([string]$Root) ConvertTo-CmCanonicalJson (Get-TestState -Root $Root)['shelfReader'] }
+function Get-ReaderDockerMutations {
+    <# Mutating docker calls other than the poll's own look for a new app image (docker pull of the main tag, every poll). #>
+    @($global:CmCalls | Where-Object { $_.Command -eq 'docker' -and $_.Mutating -and $_.Display -notmatch '^docker pull --quiet \S*collectionmaxxing-\w+:main$' })
+}
+
+Test-Case 'shelf reader: the PC as #802 found it (on, healthy, on the processor, the api holding the endpoint) ends recreated, checked and on, with no api restart and no alert' {
+    Use-TestReaderRoot -State (Get-ReaderOnState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderHealth = 'healthy'; ApiEndpoint = $script:ReaderUrl
+            ReaderLabelHash = 'cfg-before-802'; ComposeHash = 'cfg-after-802'; ReaderLog = @(Get-TestReaderCpuLog); ReaderStartsAs = 'starting' }
+        Add-TestReaderFiles $root
+        $first = Invoke-TestReaderPass $root
+        Assert-Equal 'up-to-date' $first.Result.Outcome
+        $ups = Get-ReaderUps
+        Assert-Equal 1 $ups.Count 'the running reader no longer matches the compose file, so it is recreated'
+        Assert-Equal $script:Sha2 "$($ups[0].Env['CM_TAG'])" 'at the deployed commit'
+        Assert-Equal $script:ReaderUrl "$($ups[0].Env['CM_SHELF_READER_ENDPOINT'])" 'and the endpoint the api already has'
+        Assert-Match $ups[0].ComposeFile '\.reader\.\d+\.yml$' 'from the step''s copy of the compose file at that commit'
+        Assert-Equal 0 (Get-ReaderLogReads).Count 'the old container''s log is not judged: it is replaced anyway'
+        Assert-Equal 0 (Get-ReaderStops).Count 'not stopped'
+        Assert-True ([bool]$first.State.shelfReader.on) 'the state stays on while it reloads'
+        Assert-Equal 'cfg-after-802' $global:CmMachine.ReaderLabelHash
+        $global:CmMachine.ReaderHealth = 'healthy'
+        $second = Invoke-TestReaderPass $root
+        Assert-Equal 1 (Get-ReaderLogReads).Count 'the new container''s start log is read once it is healthy'
+        Assert-Match (Get-ReaderLogReads)[0].Display ([regex]::Escape($global:CmMachine.ReaderId))
+        Assert-True ([bool]$second.State.shelfReader.on)
+        Assert-Equal 'on' "$($second.State.shelfReader.note)"
+        Assert-Equal 1 (Get-ReaderUps).Count 'recreated once'
+        Assert-Equal 0 (Get-ApiSwitches).Count 'the api keeps its endpoint and is not restarted'
+        Assert-Equal 0 (Get-ReaderAlerts).Count 'no alert'
+        Assert-False (($first.Log + $second.Log) -match 'ALERT') 'no ALERT line'
+        Assert-Equal $script:ReaderUrl $global:CmMachine.ApiEndpoint
+        # And from then on a quiet poll is quiet: no mutating docker call, no log read, no state change.
+        $global:CmCalls.Clear()
+        $before = Get-ReaderStateJson $root
+        foreach ($i in 1..3) { Invoke-TestReaderPass $root | Out-Null }
+        Assert-Equal 0 (Get-ReaderDockerMutations).Count "no mutating docker call: $((Get-ReaderDockerMutations | ForEach-Object Display) -join '; ')"
+        Assert-Equal 0 (Get-ReaderLogReads).Count 'the checked start is not read again'
+        Assert-Equal $before (Get-ReaderStateJson $root) 'the reader''s state is not rewritten'
+    }
+}
+
+Test-Case 'shelf reader: a reader whose start log says the card is not usable never gets the endpoint, is stopped, and raises the alert once' {
+    foreach ($log in @(@(Get-TestReaderCpuLog), @('warning: no usable GPU found, --gpu-layers option will be ignored'), @('ggml_cuda_init: failed to initialize CUDA: named symbol not found'))) {
+        $global:CmCalls.Clear()
+        $what = $log -join ' / '
+        Use-TestReaderRoot -State (Get-UpToDateState) {
+            param($root)
+            Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderLogOnStart = $log }
+            Add-TestReaderFiles $root
+            $t0 = [DateTime]::UtcNow
+            $global:CmNow = $t0
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal 1 (Get-ReaderUps).Count $what
+            $global:CmNow = $t0.AddMinutes(2)
+            $r = Invoke-TestReaderPass $root
+            Assert-Equal 'up-to-date' $r.Result.Outcome $what
+            Assert-Equal 0 $r.Result.ExitCode $what
+            Assert-Equal 1 (Get-ReaderLogReads).Count $what
+            Assert-True ((Get-ReaderLogReads)[0].TimeoutSeconds -gt 0) "the log read has a timeout ($what)"
+            Assert-Equal 0 (Get-ApiSwitches).Count "the endpoint is not handed over ($what)"
+            Assert-Equal '' "$($global:CmMachine.ApiEndpoint)" $what
+            Assert-False ([bool]$r.State.shelfReader.on) $what
+            Assert-Equal 1 (Get-ReaderStops).Count "stopped, freeing the card ($what)"
+            Assert-Match $r.Log 'ERROR ALERT shelf-reader the reader started but cannot use the graphics card inside Docker' $what
+            Assert-False ($r.Log -match 'ALERT deploy') $what
+            Assert-Equal 1 (Get-ReaderAlerts).Count "one alert issue ($what)"
+            Assert-Equal $script:Sha2 $r.State.current.sha 'nothing rolled back'
+            $global:CmCalls.Clear()
+            foreach ($minutes in 4, 60, 300) { $global:CmNow = $t0.AddMinutes($minutes); Invoke-TestReaderPass $root | Out-Null }
+            Assert-Equal 0 (Get-ReaderUps).Count "it waits the usual 6 hours ($what)"
+            Assert-Equal 0 (Get-ReaderLogReads).Count $what
+            Assert-Equal 1 @(Get-ReaderAlerts | Where-Object { $_.state -eq 'open' }).Count "still one alert ($what)"
+            $global:CmNow = $t0.AddHours(6).AddMinutes(5)
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal 1 (Get-ReaderUps).Count "then it tries again ($what)"
+            $global:CmNow = $t0.AddHours(6).AddMinutes(7)
+            $again = Invoke-TestReaderPass $root
+            Assert-Equal 0 (Get-ApiSwitches).Count "and still no endpoint ($what)"
+            Assert-False ([bool]$again.State.shelfReader.on) $what
+            Assert-Equal 1 @(Get-ReaderAlerts).Count "the same alert issue, not a second one ($what)"
+        }
+    }
+}
+
+Test-Case 'shelf reader: a start log that cannot be read is tried again on the next poll, neither a failure nor a pass' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderLogFails = $true }
+        Add-TestReaderFiles $root
+        Invoke-TestReaderPass $root | Out-Null
+        foreach ($i in 1..2) {
+            $r = Invoke-TestReaderPass $root
+            Assert-Equal 0 (Get-ApiSwitches).Count "no endpoint while the log is unreadable (poll $i)"
+            Assert-False ([bool]$r.State.shelfReader.on) "not on (poll $i)"
+            Assert-Equal 0 (Get-ReaderStops).Count "not stopped (poll $i)"
+            Assert-False ($r.Log -match 'ALERT') "no alert (poll $i)"
+        }
+        Assert-Equal 2 (Get-ReaderLogReads).Count 'tried on each poll'
+        $global:CmMachine.ReaderLogFails = $false
+        $on = Invoke-TestReaderPass $root
+        Assert-True ([bool]$on.State.shelfReader.on) 'readable and clean: on'
+        Assert-Equal 1 (Get-ApiSwitches).Count
+    }
+}
+
+Test-Case 'shelf reader: the start log is read once per container start, and a restarted container is checked again' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        Invoke-TestReaderUntilOn $root | Out-Null
+        Assert-Equal 1 (Get-ReaderLogReads).Count 'read when it first turned healthy'
+        $global:CmCalls.Clear()
+        foreach ($i in 1..3) { Invoke-TestReaderPass $root | Out-Null }
+        Assert-Equal 0 (Get-ReaderLogReads).Count 'not on later polls'
+        # Docker restarted the same container (restart: unless-stopped): a new start, and this time CUDA did not come up.
+        $global:CmMachine.ReaderStartedAt = '2026-11-12T09:30:00.5Z'
+        $global:CmMachine.ReaderLog = @(Get-TestReaderCpuLog)
+        $global:CmCalls.Clear()
+        $r = Invoke-TestReaderPass $root
+        Assert-Equal 1 (Get-ReaderLogReads).Count 'the new start is checked'
+        Assert-False ([bool]$r.State.shelfReader.on)
+        Assert-Equal 1 (Get-ReaderStops).Count
+        Assert-Equal 0 (Get-ApiSwitches).Count 'switching it off never restarts the api'
+        Assert-Match $r.Log 'cannot use the graphics card inside Docker'
+    }
+}
+
+Test-Case 'shelf reader: a changed reader definition recreates the running reader once, with the start window, and the api keeps its endpoint' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        $t0 = [DateTime]::UtcNow
+        $global:CmNow = $t0
+        Invoke-TestReaderUntilOn $root | Out-Null
+        $switches = (Get-ApiSwitches).Count
+        $global:CmMachine.ComposeHash = 'cfg-hash-2'
+        $global:CmMachine.ReaderStartsAs = 'unhealthy'
+        $global:CmCalls.Clear()
+        $r = Invoke-TestReaderPass $root
+        Assert-Equal 1 (Get-ReaderUps).Count 'recreated'
+        Assert-Equal $script:ReaderUrl "$((Get-ReaderUps)[0].Env['CM_SHELF_READER_ENDPOINT'])"
+        Assert-Match $r.Log 'shelf reader: .*recreated'
+        Assert-True ([bool]$r.State.shelfReader.on)
+        foreach ($minutes in 3, 6, 9) {
+            $global:CmNow = $t0.AddMinutes($minutes)
+            $p = Invoke-TestReaderPass $root
+            Assert-False ($p.Log -match 'ALERT') "loading inside the start window is no failure ($minutes min)"
+        }
+        Assert-Equal 1 (Get-ReaderUps).Count 'not recreated again while it loads'
+        Assert-Equal 0 (Get-ReaderStops).Count
+        $global:CmMachine.ReaderHealth = 'healthy'
+        $global:CmNow = $t0.AddMinutes(10)
+        $on = Invoke-TestReaderPass $root
+        Assert-True ([bool]$on.State.shelfReader.on)
+        Assert-Equal 1 (Get-ReaderLogReads).Count 'the recreated container is checked'
+        Assert-Equal 0 (Get-ApiSwitches).Count 'no api restart: its endpoint did not change'
+    }
+}
+
+Test-Case 'shelf reader: an unchanged definition is never recreated, and an unknown hash or start does nothing that poll' {
+    foreach ($how in 'same', 'hash', 'inspect', 'label') {
+        $global:CmCalls.Clear()
+        Use-TestReaderRoot -State (Get-UpToDateState) {
+            param($root)
+            Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+            Add-TestReaderFiles $root
+            Invoke-TestReaderUntilOn $root | Out-Null
+            if ($how -ne 'same') { $global:CmMachine.ComposeHash = 'cfg-hash-2' }
+            switch ($how) {
+                'hash' { $global:CmMachine.ComposeHashFails = $true }
+                'inspect' { $global:CmMachine.ReaderInspectFails = $true }
+                'label' { $global:CmMachine.ReaderLabelHash = '' }
+            }
+            $global:CmCalls.Clear()
+            foreach ($i in 1..3) { $r = Invoke-TestReaderPass $root }
+            Assert-Equal 0 (Get-ReaderUps).Count "no recreation ($how)"
+            Assert-Equal 0 (Get-ReaderDockerMutations).Count "no mutating docker call ($how)"
+            Assert-Equal 0 (Get-ReaderLogReads).Count "no log read ($how)"
+            Assert-True ([bool]$r.State.shelfReader.on) "still on ($how)"
+            Assert-Equal 0 (Get-ApiSwitches).Count $how
+            if ($how -ne 'same') {
+                # compose's hash is only asked for once the container's own can be read.
+                Assert-Equal ($(if ($how -eq 'hash') { 3 } else { 0 })) @(Get-Calls 'docker' '*config --hash shelf-reader*').Count "compose's hash ($how)"
+                $global:CmMachine.ComposeHashFails = $false; $global:CmMachine.ReaderInspectFails = $false
+                if ($how -eq 'label') { $global:CmMachine.ReaderLabelHash = 'cfg-hash-1' }
+                Invoke-TestReaderPass $root | Out-Null
+                Assert-Equal 1 (Get-ReaderUps).Count "recreated once both can be read ($how)"
+            }
+        }
+    }
+}
+
+Test-Case 'shelf reader: a recreation that does not change the container''s hash is not repeated on every poll' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        Invoke-TestReaderUntilOn $root | Out-Null
+        $global:CmMachine.ComposeHash = 'cfg-hash-2'
+        $global:CmMachine.ReaderUpKeepsHash = $true
+        $global:CmCalls.Clear()
+        foreach ($i in 1..4) { $r = Invoke-TestReaderPass $root }
+        Assert-Equal 1 (Get-ReaderUps).Count 'one try for this definition'
+        Assert-True ([bool]$r.State.shelfReader.on)
+        Assert-Equal 0 (Get-ApiSwitches).Count
+        $global:CmMachine.ComposeHash = 'cfg-hash-3'
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 2 (Get-ReaderUps).Count 'a newer definition is tried again'
+    }
+}
+
+Test-Case 'shelf reader: a recreation that fails is a reader failure, never a deploy failure, and the api is left alone' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        Invoke-TestReaderUntilOn $root | Out-Null
+        $switches = (Get-ApiSwitches).Count
+        $global:CmMachine.ComposeHash = 'cfg-hash-2'
+        $global:CmMachine.ReaderUpFails = $true
+        $r = Invoke-TestReaderPass $root
+        Assert-Equal 'up-to-date' $r.Result.Outcome
+        Assert-Equal 0 $r.Result.ExitCode
+        Assert-False ([bool]$r.State.shelfReader.on)
+        Assert-Match $r.Log 'ERROR ALERT shelf-reader '
+        Assert-Equal $switches (Get-ApiSwitches).Count
+        Assert-Equal $script:Sha2 $r.State.current.sha
     }
 }
