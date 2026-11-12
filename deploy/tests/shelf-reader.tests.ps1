@@ -159,12 +159,19 @@ Test-Case 'shelf reader guard: the deployer runs the guard with the gpu profile,
 
 # ---- the config guard ------------------------------------------------------------------------------------------------------
 
+function New-GuardModelsVolume {
+    <# The reader's mount of the model volume (#804), as `docker compose config --format json` prints `models:/models:ro`. #>
+    param([string]$Source = 'models', [string]$Target = '/models', [bool]$ReadOnly = $true)
+    [pscustomobject]@{ type = 'volume'; source = $Source; target = $Target; read_only = $ReadOnly; volume = [pscustomobject]@{} }
+}
 function New-GuardReader {
-    param([string]$Source = 'C:\CollectionMaxxing\models', [bool]$ReadOnly = $true)
+    <# The reader as the guard should see it: the model volume read-only at /models. -Source gives it a host-folder bind at /models instead (before #804). #>
+    param([string]$Source = '', [bool]$ReadOnly = $true)
+    $mount = if ($Source) { [pscustomobject]@{ type = 'bind'; source = $Source; target = '/models'; read_only = $ReadOnly } } else { New-GuardModelsVolume -ReadOnly $ReadOnly }
     [pscustomobject]@{
         image    = 'ghcr.io/ggml-org/llama.cpp:server-cuda-b12282@sha256:bb29527ecb3da442d9459591c252351d957b6e3ee1635e8d0406c0a4442eb08c'
         networks = [pscustomobject]@{ reader = $null }
-        volumes  = @([pscustomobject]@{ type = 'bind'; source = $Source; target = '/models'; read_only = $ReadOnly })
+        volumes  = @($mount)
         deploy  = [pscustomobject]@{ resources = [pscustomobject]@{ reservations = [pscustomobject]@{ devices = @([pscustomobject]@{ driver = 'nvidia'; count = 1; capabilities = @('gpu') }) } } }
     }
 }
@@ -174,13 +181,99 @@ function New-GuardConfigWithReader {
     $cfg.services | Add-Member -NotePropertyName 'shelf-reader' -NotePropertyValue $Reader
     $cfg.services.api | Add-Member -NotePropertyName networks -NotePropertyValue ([pscustomobject]@{ default = $null; reader = $null })
     $cfg | Add-Member -NotePropertyName networks -NotePropertyValue ([pscustomobject]@{ default = [pscustomobject]@{ name = 'collectionmaxxing_default' }; reader = [pscustomobject]@{ name = 'collectionmaxxing_reader'; internal = $true } })
+    $cfg | Add-Member -NotePropertyName volumes -NotePropertyValue ([pscustomobject]@{
+            pgdata = [pscustomobject]@{ name = 'collectionmaxxing_pgdata' }
+            files  = [pscustomobject]@{ name = 'collectionmaxxing_files' }
+            models = [pscustomobject]@{ name = 'collectionmaxxing_models' }
+        })
     $cfg
 }
 
-Test-Case 'shelf reader guard: the reader with its read-only models mount and its GPU passes' {
+Test-Case 'shelf reader guard: the reader with the model volume read-only at /models and its GPU passes (#804)' {
     Assert-Equal 0 (Get-GuardProblems (New-GuardConfigWithReader)).Count ((Get-GuardProblems (New-GuardConfigWithReader)) -join '; ')
     $envMap = New-GuardEnv; $envMap['CM_MODELS_DIR'] = 'D:\Models'
-    Assert-Equal 0 (Get-GuardProblems (New-GuardConfigWithReader (New-GuardReader -Source 'D:\Models')) $envMap).Count 'a models folder named in .env'
+    Assert-Equal 0 (Get-GuardProblems (New-GuardConfigWithReader) $envMap).Count 'with a models folder named in .env'
+}
+
+Test-Case 'shelf reader guard: the host models folder is no longer allowed on the reader, read-only or not, wherever CM_MODELS_DIR points (#804)' {
+    foreach ($case in @(@{ Dir = $null; Source = 'C:\CollectionMaxxing\models' }, @{ Dir = 'D:\Models'; Source = 'D:\Models' }, @{ Dir = 'D:\Models'; Source = 'D:\Models\sub' })) {
+        $envMap = New-GuardEnv; if ($case.Dir) { $envMap['CM_MODELS_DIR'] = $case.Dir }
+        $problems = @(Get-GuardProblems (New-GuardConfigWithReader (New-GuardReader -Source $case.Source)) $envMap)
+        Assert-Equal 1 $problems.Count "[$($case.Source)]: $($problems -join '; ')"
+        Assert-Match $problems[0] "service 'shelf-reader' bind-mounts a host folder \(container path /models\)"
+    }
+}
+
+Test-Case 'shelf reader guard: the model volume writable, at another path, or a second volume or a tmpfs on the reader is refused (#804)' {
+    foreach ($case in @(
+            @{ Mount = (New-GuardModelsVolume -ReadOnly $false); Want = 'model volume writable' }
+            @{ Mount = (New-GuardModelsVolume -Target '/m'); Want = 'model volume at /m' }
+            @{ Mount = (New-GuardModelsVolume -Target '/Models'); Want = 'model volume at /Models' }
+            @{ Mount = (New-GuardModelsVolume -Source 'pgdata'); Want = "'volume' mount at /models" }
+            @{ Mount = [pscustomobject]@{ type = 'volume'; target = '/scratch' }; Want = "'volume' mount at /scratch" }
+            @{ Mount = [pscustomobject]@{ type = 'tmpfs'; target = '/tmp' }; Want = "'tmpfs' mount at /tmp" }
+        )) {
+        $reader = New-GuardReader
+        if ($case.Want -like "'*") { $reader.volumes = @($reader.volumes) + @($case.Mount) } else { $reader.volumes = @($case.Mount) }
+        $problems = @(Get-GuardProblems (New-GuardConfigWithReader $reader))
+        Assert-Equal 1 $problems.Count "[$($case.Want)]: $($problems -join '; ')"
+        Assert-Match $problems[0] "service 'shelf-reader'" $case.Want
+        Assert-Match $problems[0] ([regex]::Escape($case.Want)) $case.Want
+    }
+}
+
+Test-Case 'shelf reader guard: no other service may mount the model volume, under its key or another key naming it (#804)' {
+    foreach ($svc in 'api', 'backup', 'postgres') {
+        $cfg = New-GuardConfigWithReader
+        if (-not $cfg.services.$svc) { $cfg.services | Add-Member -NotePropertyName $svc -NotePropertyValue ([pscustomobject]@{}) }
+        $cfg.services.$svc | Add-Member -NotePropertyName volumes -NotePropertyValue @(New-GuardModelsVolume -Target '/m') -Force
+        $problems = @(Get-GuardProblems $cfg)
+        Assert-Equal 1 $problems.Count "[$svc]: $($problems -join '; ')"
+        Assert-Match $problems[0] "service '$svc' mounts the model volume"
+    }
+    # Another key with the same docker name is the same volume.
+    $cfg = New-GuardConfigWithReader
+    $cfg.volumes | Add-Member -NotePropertyName weights -NotePropertyValue ([pscustomobject]@{ name = 'collectionmaxxing_models' })
+    $cfg.services.api | Add-Member -NotePropertyName volumes -NotePropertyValue @(New-GuardModelsVolume -Source 'weights' -Target '/w' -ReadOnly $true) -Force
+    $problems = @(Get-GuardProblems $cfg)
+    Assert-Match ($problems -join ';') "service 'api' mounts the model volume"
+    Assert-Match ($problems -join ';') "volume 'weights' names the model volume"
+    # The reader under that other key is refused too: the reader mounts it only as 'models'.
+    $cfg = New-GuardConfigWithReader
+    $cfg.volumes | Add-Member -NotePropertyName weights -NotePropertyValue ([pscustomobject]@{ name = 'collectionmaxxing_models' })
+    Assert-Match ((Get-GuardProblems $cfg) -join ';') "volume 'weights' names the model volume"
+}
+
+Test-Case 'shelf reader guard: the model volume is not external, has no driver options or other driver, and keeps its name (#804)' {
+    foreach ($case in @(
+            @{ Def = [pscustomobject]@{ name = 'collectionmaxxing_models'; external = $true }; Want = 'external' }
+            @{ Def = [pscustomobject]@{ name = 'collectionmaxxing_models'; driver_opts = [pscustomobject]@{ type = 'tmpfs'; device = 'tmpfs' } }; Want = 'driver' }
+            @{ Def = [pscustomobject]@{ name = 'collectionmaxxing_models'; driver_opts = [pscustomobject]@{ size = '10g' } }; Want = 'driver' }
+            @{ Def = [pscustomobject]@{ name = 'collectionmaxxing_models'; driver = 'some-plugin' }; Want = 'driver' }
+            @{ Def = [pscustomobject]@{ name = 'elsewhere' }; Want = "named 'collectionmaxxing_models'" }
+        )) {
+        $cfg = New-GuardConfigWithReader
+        $cfg.volumes.models = $case.Def
+        $problems = @(Get-GuardProblems $cfg)
+        Assert-True ($problems.Count -ge 1) "[$($case.Want)] refused"
+        Assert-Match ($problems -join ';') "volume 'models'" $case.Want
+        Assert-Match ($problems -join ';') ([regex]::Escape($case.Want)) $case.Want
+    }
+    $cfg = New-GuardConfigWithReader
+    $cfg.volumes.models = [pscustomobject]@{ name = 'collectionmaxxing_models'; driver = 'local' }
+    Assert-Equal 0 (Get-GuardProblems $cfg).Count 'the local driver, as compose may print it, is fine'
+}
+
+Test-Case 'shelf reader guard: the host models folder is refused on every other service, even inside a folder it may use (#804)' {
+    $envMap = New-GuardEnv; $envMap['CM_MODELS_DIR'] = 'C:\CollectionMaxxing\secrets\models'
+    $cfg = New-GuardConfigWithReader
+    $cfg.services.api | Add-Member -NotePropertyName volumes -NotePropertyValue @([pscustomobject]@{ type = 'bind'; source = 'C:\CollectionMaxxing\secrets\models'; target = '/m'; read_only = $true }) -Force
+    $problems = @(Get-GuardProblems $cfg $envMap)
+    Assert-Equal 1 $problems.Count ($problems -join '; ')
+    Assert-Match $problems[0] "service 'api' bind-mounts the host models folder"
+    $cfg = New-GuardConfigWithReader
+    $cfg.services.api | Add-Member -NotePropertyName volumes -NotePropertyValue @([pscustomobject]@{ type = 'bind'; source = 'C:\CollectionMaxxing\secrets\other'; target = '/s'; read_only = $true }) -Force
+    Assert-Equal 0 (Get-GuardProblems $cfg $envMap).Count 'the rest of that folder is still the api''s'
 }
 
 Test-Case 'shelf reader guard: a published port on the reader is refused, even on 127.0.0.1' {
@@ -260,14 +353,14 @@ Test-Case 'shelf reader guard: CM_MODELS_DIR cannot widen the binds, for the rea
         $envMap = New-GuardEnv; $envMap['CM_MODELS_DIR'] = $dir
         $problems = @(Get-GuardProblems (New-GuardConfigWithReader (New-GuardReader -Source 'C:\Users\someone')) $envMap)
         Assert-Match ($problems -join ';') 'CM_MODELS_DIR names a drive root' "[$dir]"
-        Assert-Match ($problems -join ';') "service 'shelf-reader' bind-mounts a host folder outside the models folder" "[$dir] then allows the reader nothing"
+        Assert-Match ($problems -join ';') "service 'shelf-reader' bind-mounts a host folder \(container path" "[$dir] then allows the reader nothing"
     }
     $envMap = New-GuardEnv; $envMap['CM_MODELS_DIR'] = 'D:\Models'
-    $cfg = New-GuardConfigWithReader (New-GuardReader -Source 'D:\Models')
+    $cfg = New-GuardConfigWithReader
     $cfg.services.api | Add-Member -NotePropertyName volumes -NotePropertyValue @([pscustomobject]@{ type = 'bind'; source = 'D:\Models'; target = '/m'; read_only = $true }) -Force
     $problems = @(Get-GuardProblems $cfg $envMap)
     Assert-Equal 1 $problems.Count ($problems -join '; ')
-    Assert-Match $problems[0] "service 'api' bind-mounts a host folder outside" 'the models folder is the reader''s alone, even read-only'
+    Assert-Match $problems[0] "service 'api' bind-mounts the host models folder" 'the models folder is no compose service''s, even read-only (#804)'
 }
 
 Test-Case 'shelf reader guard: the reader is only on its internal network, and only the api joins it' {
@@ -313,11 +406,11 @@ Test-Case 'shelf reader guard: the driver folder writable, at another target, or
             @{ Mount = (New-GuardDriversMount -Target '/usr/lib/wsl'); Want = 'driver folder' }
             @{ Mount = (New-GuardDriversMount -Source 'C:\Users\someone'); Want = 'driver folder' }
             @{ Mount = (New-GuardDriversMount -Source '/usr/lib/wsl'); Want = 'driver folder' }
-            @{ Mount = (New-GuardDriversMount -Source '/usr/lib/wsl' -Target '/usr/lib/wsl'); Want = 'outside the models folder' }
-            @{ Mount = (New-GuardDriversMount -Source '/usr/lib/wsl/drivers/..' -Target '/x'); Want = 'outside the models folder' }
-            @{ Mount = (New-GuardDriversMount -Source '/usr/lib/wsl/drivers/sub' -Target '/x'); Want = 'outside the models folder' }
-            @{ Mount = (New-GuardDriversMount -Source '/USR/LIB/WSL/DRIVERS' -Target '/USR/LIB/WSL/DRIVERS'); Want = 'outside the models folder' }
-            @{ Mount = (New-GuardDriversMount -Source '/' -Target '/host'); Want = 'outside the models folder' }
+            @{ Mount = (New-GuardDriversMount -Source '/usr/lib/wsl' -Target '/usr/lib/wsl'); Want = 'bind-mounts a host folder \(container' }
+            @{ Mount = (New-GuardDriversMount -Source '/usr/lib/wsl/drivers/..' -Target '/x'); Want = 'bind-mounts a host folder \(container' }
+            @{ Mount = (New-GuardDriversMount -Source '/usr/lib/wsl/drivers/sub' -Target '/x'); Want = 'bind-mounts a host folder \(container' }
+            @{ Mount = (New-GuardDriversMount -Source '/USR/LIB/WSL/DRIVERS' -Target '/USR/LIB/WSL/DRIVERS'); Want = 'bind-mounts a host folder \(container' }
+            @{ Mount = (New-GuardDriversMount -Source '/' -Target '/host'); Want = 'bind-mounts a host folder \(container' }
         )) {
         $m = $case.Mount
         $what = "$($m.source) -> $($m.target) ro=$($m.read_only)"
@@ -373,7 +466,26 @@ Test-Case 'shelf reader: the production pins are the ones in issue #795' {
 # ---- the deployer: helpers -----------------------------------------------------------------------------------------------------
 
 function Get-UpToDateState { @{ current = @{ sha = $script:Sha2; created = '2026-10-13T12:00:00.0000000Z'; deployedAt = '2026-10-13T12:05:00Z' } } }
-function Add-TestReaderFiles { param([string]$Root) Add-TestReaderFile $Root $script:ReaderModel | Out-Null; Add-TestReaderFile $Root $script:ReaderProjector | Out-Null }
+function Add-TestReaderFiles {
+    <#
+      Both model files in the host folder and, unless -NoVolume, the model volume already filled from them and recorded
+      in the state, as an earlier pass of #804 leaves it (so the tests from before #804 start from a filled volume).
+      Call after Start-TestReaderMachine.
+    #>
+    param([string]$Root, [switch]$NoVolume)
+    Add-TestReaderFile $Root $script:ReaderModel | Out-Null; Add-TestReaderFile $Root $script:ReaderProjector | Out-Null
+    if ($NoVolume) { return }
+    if (-not $global:CmMachine) { throw 'Add-TestReaderFiles needs the fake machine first (Start-TestReaderMachine)' }
+    $global:CmMachine.VolumeCreatedAt = '2026-11-12T07:00:00Z'
+    $global:CmMachine.VolumeFilled = $true
+    $statePath = Join-Path $Root 'state/deployer-state.json'
+    if (Test-Path -LiteralPath $statePath) {
+        $state = Get-TestState -Root $Root
+        if ($state['shelfReader'] -isnot [System.Collections.IDictionary]) { $state['shelfReader'] = @{} }
+        $state['shelfReader']['volume'] = New-CmModelsVolumeRecord -CreatedAt '2026-11-12T07:00:00Z'
+        Set-TestState -Root $Root -State $state
+    }
+}
 function Remove-TestReaderFile { param([string]$Root, [string]$Name) [IO.File]::Delete((Join-Path (Join-Path $Root 'models') $Name)) }
 function Invoke-TestReaderUntilOn {
     <# Quiet passes until the state says the reader is on (start, then switch), at most four. #>
@@ -603,10 +715,20 @@ Test-Case 'shelf reader: a finished download is verified, renamed, and only then
             Assert-False (Test-Path -LiteralPath (Join-Path $root "models/$name.partial")) "$name.partial is gone"
         }
         Assert-Match $second.Log 'verified'
-        Assert-Equal 1 (Get-ReaderUps).Count 'the reader starts in the pass after the files verify'
+        # A fresh PC (#804): the image is pulled for the copy (one pass), the files are copied into the volume (the next),
+        # and only then is the reader started (the one after), each heavy step in a pass of its own.
+        Assert-Equal 1 (Get-Calls 'docker' 'docker pull*llama.cpp*').Count 'the pass after the files verify pulls the image'
+        Assert-Equal 0 $global:CmMachine.Fills 'and copies nothing yet'
+        Assert-Equal 0 (Get-ReaderUps).Count 'and starts nothing'
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 1 $global:CmMachine.Fills 'then the copy into the volume'
+        Assert-Equal 0 (Get-ReaderUps).Count 'in a pass of its own'
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 1 (Get-ReaderUps).Count 'the reader starts in the pass after the volume verifies'
         Invoke-TestReaderPass $root | Out-Null
         Assert-Equal $script:ReaderUrl "$((Get-ApiSwitches)[0].Env['CM_SHELF_READER_ENDPOINT'])"
         Assert-Equal 2 $global:CmDetachedStarts.Count 'downloaded once'
+        Assert-Equal 1 $global:CmMachine.Fills 'copied once'
     }
 }
 
@@ -1299,6 +1421,9 @@ Test-Case 'shelf reader: a start log that stays unreadable fails the reader afte
             foreach ($minutes in 2, 6, 9) { $global:CmNow = $t0.AddMinutes($minutes); Invoke-TestReaderPass $root | Out-Null }
             Assert-Equal 0 (Get-ReaderStops).Count "waits inside the window ($how)"
             $global:CmNow = $t0.AddMinutes(11)
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal 0 (Get-ReaderStops).Count "past the window, but unreadable for only 9 minutes ($how)"
+            $global:CmNow = $t0.AddMinutes(12)
             $late = Invoke-TestReaderPass $root
             Assert-Match $late.Log 'ERROR ALERT shelf-reader the reader''s start log could not be read, so the graphics card could not be checked' $how
             Assert-Equal 1 (Get-ReaderStops).Count $how
@@ -1347,6 +1472,7 @@ Test-Case 'shelf reader: a hash that changes on every poll gives one recreation 
         foreach ($i in 1..5) { $global:CmMachine.ComposeHash = "cfg-moving-$i"; $log += (Invoke-TestReaderPass $root).Log }
         Assert-Equal 1 (Get-ReaderUps).Count 'one recreation'
         Assert-Equal 1 ([regex]::Matches($log, 'WARN  shelf reader: the container still does not match')).Count "one WARN: $log"
+        Assert-Match $log 'WARN  shelf reader: the container still does not match .*a second change at the same commit, such as an edit to \.env.*the next deploy applies it' 'it says in plain words when the change lands'
     }
 }
 
@@ -1379,5 +1505,566 @@ Test-Case 'shelf reader guard: volumes_from is refused on every service, in any 
         $problems = @(Get-GuardProblems $cfg)
         Assert-Equal 1 $problems.Count "[$($case.Svc) from $($case.From)]: $($problems -join '; ')"
         Assert-Match $problems[0] "service '$($case.Svc)' takes another service's or container's mounts \(volumes_from\)"
+    }
+}
+
+# ---- #804: the model files load from a Docker volume, filled by the deployer ------------------------------------------------
+
+$script:ModelsVolume = 'collectionmaxxing_models'
+# The reader's part of a compose file from before #804 (the host folder bound at /models), as the deployed commit had it
+# for a few minutes after the deployer's scripts moved to main.
+$script:ComposeBefore804 = @(
+    'services:'
+    '  shelf-reader:'
+    '    volumes:'
+    '      # Read-only: the deployer downloads and verifies the files on the host; the container only reads them.'
+    '      - ${CM_MODELS_DIR:-../../models}:/models:ro'
+    '      - /usr/lib/wsl/drivers:/usr/lib/wsl/drivers:ro') -join "`n"
+
+function Get-FillRuns { @(Get-Calls 'docker' 'docker run --rm*llama.cpp*') }
+function Get-VolumeReads { @(Get-Calls 'docker' 'docker volume inspect*') }
+function Get-VolumeCreates { @(Get-Calls 'docker' 'docker volume create*') }
+function Get-ReaderStateAfter803 {
+    <# The PC after #803: the reader on, checked, recreated once at the commit #803 deployed (Sha1), no volume record. #>
+    $s = Get-OldGoodState
+    $s['shelfReader'] = @{ on = $true; note = 'on'; startedAt = 1762934400; downSince = 0; retryAt = 0; cardMisses = 0; files = @{}; downloads = @{}
+        checkedStart = 'reader-c0|2026-11-12T08:00:00.123456789Z'; recreatedAt = $script:Sha1 }
+    $s
+}
+function Find-TestBash {
+    $git = if ($env:ProgramFiles) { @((Join-Path $env:ProgramFiles 'Git/bin/bash.exe'), (Join-Path $env:ProgramFiles 'Git/usr/bin/bash.exe')) } else { @() }
+    $candidates = @($git + '/bin/bash' + '/usr/bin/bash') | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    if ($candidates) { return @($candidates)[0] }
+    throw 'bash was not found (install Git for Windows, or run on Linux): the fill script is tested by running it'
+}
+function Invoke-TestFillScript {
+    <# Runs the fill helper's real script with bash on two temp folders standing in for /src and /models. #>
+    param([string]$Src, [string]$Dst, [string[]]$Arguments)
+    $posix = { param($p) ($p -replace '\\', '/') }
+    $script = (Get-CmModelsFillScript).Replace('dst=/models; src=/src;', "dst='$(& $posix $Dst)'; src='$(& $posix $Src)';")
+    Assert-True ($script -ne (Get-CmModelsFillScript)) 'the test could put its own folders into the script'
+    $file = Join-Path (Split-Path -Parent $Dst) 'fill.sh'
+    [IO.File]::WriteAllText($file, $script)
+    $out = @(& (Find-TestBash) (& $posix $file) @Arguments 2>&1 | ForEach-Object { "$_" })
+    [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($out -join "`n") }
+}
+function Get-TestFillArgs { foreach ($pin in Get-CmShelfReaderFiles) { "$($pin.Name)"; "$($pin.Sha256)"; "$($pin.Size)" } }
+
+Test-Case 'shelf reader compose: the reader reads /models from the models volume, named collectionmaxxing_models, and nothing binds the host models folder (#804)' {
+    $config = Get-RealComposeConfig -Profiles @('gpu')
+    $models = @($config.services.'shelf-reader'.volumes | Where-Object { $_.target -eq '/models' })
+    Assert-Equal 1 $models.Count
+    Assert-Equal 'volume' "$($models[0].type)"
+    Assert-Equal 'models' "$($models[0].source)"
+    Assert-True ($models[0].read_only -eq $true) 'read-only'
+    Assert-Equal $script:ModelsVolume "$($config.volumes.models.name)" 'the explicit name the deployer fills'
+    Assert-Equal $script:CmModelsVolume "$($config.volumes.models.name)" 'one constant in both places'
+    Assert-True ($config.volumes.models.external -ne $true) 'compose''s own volume'
+    foreach ($p in $config.services.PSObject.Properties) {
+        if ($p.Name -eq 'shelf-reader') { continue }
+        Assert-Equal 0 @($p.Value.volumes | Where-Object { "$($_.source)" -eq 'models' }).Count "$($p.Name) does not mount the model volume"
+    }
+    $text = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../docker-compose.yml') -Raw
+    Assert-False ($text -match '\$\{CM_MODELS_DIR') 'the compose file no longer binds CM_MODELS_DIR'
+    Assert-True (Test-CmShelfReaderUsesVolume -RCtx ([pscustomobject]@{ ComposeFile = (Join-Path $PSScriptRoot '../docker-compose.yml') })) 'and the step sees that it uses the volume'
+}
+
+Test-Case 'shelf reader: the fill helper runs the pinned image with no network or capabilities, the host folder read-only and the volume writable, with a timeout (#804)' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderImagePresent = $true }
+        Add-TestReaderFiles $root -NoVolume
+        Invoke-TestReaderPass $root | Out-Null
+        $runs = Get-FillRuns
+        Assert-Equal 1 $runs.Count 'one fill'
+        $a = @($runs[0].Arguments)
+        $dir = Join-Path $root 'models'
+        $at = { param($flag) [array]::IndexOf($a, $flag) }
+        Assert-Equal 'run' $a[0]; Assert-Equal '--rm' $a[1]
+        foreach ($pair in @(@('--network', 'none'), @('--cap-drop', 'ALL'), @('--security-opt', 'no-new-privileges'), @('--entrypoint', 'sh'), @('--pull', 'never'), @('--name', 'collectionmaxxing-models-fill'))) {
+            $i = & $at $pair[0]
+            Assert-True ($i -gt 0) "$($pair[0]) is passed"
+            Assert-Equal $pair[1] $a[$i + 1] $pair[0]
+        }
+        $mounts = @(for ($i = 0; $i -lt $a.Count - 1; $i++) { if ($a[$i] -eq '-v' -or $a[$i] -eq '--volume' -or $a[$i] -eq '--mount') { $a[$i + 1] } })
+        Assert-Equal 2 $mounts.Count "two mounts: $($mounts -join ' | ')"
+        Assert-Equal "${dir}:/src:ro" $mounts[0] 'the host models folder, read-only'
+        Assert-Equal "$($script:ModelsVolume):/models" $mounts[1] 'the model volume, writable'
+        $img = [array]::IndexOf($a, $script:CmShelfReaderImage)
+        Assert-True ($img -gt (& $at '--entrypoint')) 'the pinned image'
+        Assert-Equal '-c' $a[$img + 1]
+        Assert-Equal (Get-CmModelsFillScript) $a[$img + 2] 'the constant script'
+        Assert-Equal ((@('cm-fill') + @(Get-TestFillArgs)) -join ' ') (@($a | Select-Object -Skip ($img + 3)) -join ' ') 'the pins as arguments: name, SHA-256, size'
+        Assert-Equal 600 $runs[0].TimeoutSeconds 'ten minutes at most'
+        Assert-True ([bool]$runs[0].Mutating)
+        foreach ($forbidden in '--privileged', '--cap-add', '--network=host', 'host') { Assert-False ($a -contains $forbidden) $forbidden }
+    }
+}
+
+Test-Case 'shelf reader: the fill script copies to .partial, checks the SHA-256 in the volume, renames, and removes leftovers (#804)' {
+    Use-TestReaderPins
+    $base = Join-Path ([IO.Path]::GetTempPath()) ('cm-ops1-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    try {
+        $src = Join-Path $base 'src'; $dst = Join-Path $base 'models'
+        New-Item -ItemType Directory -Force -Path $src, $dst | Out-Null
+        foreach ($name in $script:ReaderModel, $script:ReaderProjector) { [IO.File]::WriteAllText((Join-Path $src $name), $script:ReaderContent[$name]) }
+        [IO.File]::WriteAllText((Join-Path $dst 'left-over.gguf.partial'), 'from a copy that died')
+        [IO.File]::WriteAllText((Join-Path $dst $script:ReaderModel), 'an old copy')
+        $r = Invoke-TestFillScript -Src $src -Dst $dst -Arguments @(Get-TestFillArgs)
+        Assert-Equal 0 $r.ExitCode $r.Output
+        Assert-Match $r.Output 'cm-fill: done'
+        foreach ($name in $script:ReaderModel, $script:ReaderProjector) {
+            Assert-Equal $script:ReaderContent[$name] ([IO.File]::ReadAllText((Join-Path $dst $name))) "$name copied"
+        }
+        Assert-Equal 0 @(Get-ChildItem -LiteralPath $dst -Filter '*.partial').Count 'no .partial is left, the old one included'
+
+        # A copy whose bytes do not match the pin: not renamed into place, and its .partial removed.
+        [IO.File]::WriteAllText((Join-Path $src $script:ReaderProjector), 'X' * $script:ReaderContent[$script:ReaderProjector].Length)
+        Remove-Item -LiteralPath (Join-Path $dst $script:ReaderProjector)
+        $r = Invoke-TestFillScript -Src $src -Dst $dst -Arguments @(Get-TestFillArgs)
+        Assert-True ($r.ExitCode -ne 0) "a wrong hash fails the helper: $($r.Output)"
+        Assert-Match $r.Output "cm-fill: $([regex]::Escape($script:ReaderProjector)) does not match its pinned SHA-256"
+        Assert-False (Test-Path -LiteralPath (Join-Path $dst $script:ReaderProjector)) 'the bad copy never takes the final name'
+        Assert-Equal 0 @(Get-ChildItem -LiteralPath $dst -Filter '*.partial').Count 'and its .partial is gone'
+
+        # Not enough room: nothing is copied, and the reason says so.
+        [IO.File]::WriteAllText((Join-Path $src $script:ReaderProjector), $script:ReaderContent[$script:ReaderProjector])
+        $huge = @(Get-TestFillArgs); $huge[2] = '900000000000000000'
+        $r = Invoke-TestFillScript -Src $src -Dst $dst -Arguments $huge
+        Assert-True ($r.ExitCode -ne 0) $r.Output
+        Assert-Match $r.Output 'cm-fill: not enough room in the model volume'
+        Assert-False (Test-Path -LiteralPath (Join-Path $dst $script:ReaderProjector)) 'nothing copied'
+
+        # A source file that is missing fails too, without a .partial.
+        $r = Invoke-TestFillScript -Src (Join-Path $base 'nowhere') -Dst $dst -Arguments @(Get-TestFillArgs)
+        Assert-True ($r.ExitCode -ne 0) $r.Output
+        Assert-Match $r.Output 'cm-fill: could not copy'
+        Assert-Equal 0 @(Get-ChildItem -LiteralPath $dst -Filter '*.partial').Count
+    }
+    finally { Remove-TestRoot $base }
+}
+
+Test-Case 'shelf reader: from the PC''s state after #803, a new commit fills the volume first, then recreates the reader once, checks the card, and goes quiet (#804)' {
+    Use-TestReaderRoot -State (Get-ReaderStateAfter803) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha1; ReaderHealth = 'healthy'; ApiEndpoint = $script:ReaderUrl; ReaderImagePresent = $true
+            ReaderStartedAt = '2026-11-12T08:00:00.123456789Z'; ReaderLabelHash = 'cfg-803'; ComposeHash = 'cfg-804'; ReaderStartsAs = 'starting' }
+        Add-TestReaderFiles $root -NoVolume
+        $deploy = Invoke-TestReaderPass $root
+        Assert-Equal 'deployed' $deploy.Result.Outcome 'the new commit deploys'
+        Assert-Equal $script:ReaderUrl "$((Get-StackUps)[0].Env['CM_SHELF_READER_ENDPOINT'])" 'the api keeps the endpoint through the deploy'
+        Assert-Equal 0 (Get-FillRuns).Count 'a deploy pass copies nothing'
+
+        $fill = Invoke-TestReaderPass $root
+        Assert-Equal 'up-to-date' $fill.Result.Outcome
+        Assert-Equal 1 (Get-VolumeCreates).Count 'the volume is created'
+        Assert-Match (Get-VolumeCreates)[0].Display 'com\.docker\.compose\.project=collectionmaxxing'
+        Assert-Match (Get-VolumeCreates)[0].Display 'com\.docker\.compose\.volume=models'
+        Assert-Equal 1 (Get-FillRuns).Count 'and filled'
+        Assert-Equal 0 (Get-ReaderUps).Count 'the running reader is not recreated in the pass that fills'
+        Assert-Equal 0 (Get-ReaderStops).Count 'nor stopped'
+        Assert-Equal 'cfg-803' $global:CmMachine.ReaderLabelHash 'it still runs the old definition'
+        Assert-True ([bool]$fill.State.shelfReader.on)
+        Assert-Equal $script:ModelsVolume "$($fill.State.shelfReader.volume.name)"
+        Assert-Equal (ConvertTo-CmVolumeStamp $global:CmMachine.VolumeCreatedAt) (ConvertTo-CmVolumeStamp $fill.State.shelfReader.volume.createdAt) 'the record names the volume it filled'
+        Assert-Equal 2 @($fill.State.shelfReader.volume.files).Count
+
+        $recreate = Invoke-TestReaderPass $root
+        Assert-Equal 1 (Get-ReaderUps).Count 'recreated once the volume verifies'
+        Assert-True ((Get-CallIndex 'docker run --rm*llama.cpp*') -lt (Get-CallIndex '*up -d --no-deps shelf-reader*')) 'fill first, then recreate'
+        Assert-Equal 'cfg-804' $global:CmMachine.ReaderLabelHash 'on the new definition'
+        Assert-Equal 'starting' $global:CmMachine.ReaderHealth 'and it loads (a reader on an empty volume would be restarting)'
+        Assert-True ([bool]$recreate.State.shelfReader.on)
+
+        $global:CmMachine.ReaderHealth = 'healthy'
+        $on = Invoke-TestReaderPass $root
+        Assert-Equal 1 (Get-ReaderLogReads).Count 'the card check runs on the new start'
+        Assert-Match (Get-ReaderLogReads)[0].Display ([regex]::Escape($global:CmMachine.ReaderId))
+        Assert-True ([bool]$on.State.shelfReader.on)
+        Assert-Equal 'on' "$($on.State.shelfReader.note)"
+        Assert-Equal 0 (Get-ApiSwitches).Count 'the api is never restarted'
+        Assert-Equal $script:ReaderUrl $global:CmMachine.ApiEndpoint
+        Assert-Equal 0 (Get-ReaderAlerts).Count 'no alert issue'
+        Assert-False (($fill.Log + $recreate.Log + $on.Log) -match 'ALERT') 'no ALERT line'
+
+        $global:CmCalls.Clear()
+        $before = Get-ReaderStateJson $root
+        foreach ($i in 1..3) { Invoke-TestReaderPass $root | Out-Null }
+        Assert-Equal 0 (Get-ReaderDockerMutations).Count "quiet polls make no mutating docker call: $((Get-ReaderDockerMutations | ForEach-Object Display) -join '; ')"
+        Assert-Equal 0 (Get-FillRuns).Count 'and copy nothing again'
+        Assert-Equal 3 (Get-VolumeReads).Count 'one volume read per poll'
+        foreach ($c in Get-VolumeReads) { Assert-False ([bool]$c.Mutating) 'a read'; Assert-True ($c.TimeoutSeconds -gt 0) 'with a timeout' }
+        Assert-Equal $before (Get-ReaderStateJson $root) 'and write no state'
+        Assert-Equal 1 $global:CmMachine.Fills 'copied once in all'
+    }
+}
+
+Test-Case 'shelf reader: a reader that is off is never started on a volume that is not verified, and the start waits for the pass after the fill (#804)' {
+    foreach ($health in 'missing', 'stopped') {
+        $global:CmCalls.Clear()
+        Use-TestReaderRoot -State (Get-UpToDateState) {
+            param($root)
+            Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderHealth = $health; ReaderImagePresent = $true }
+            Add-TestReaderFiles $root -NoVolume
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal 1 (Get-FillRuns).Count $health
+            Assert-Equal 0 (Get-ReaderUps).Count "no start in the pass that fills ($health)"
+            Assert-Equal 0 (Get-Calls 'docker' '*ps -a --format json shelf-reader*').Count "the container is not even looked at while the volume is not verified ($health)"
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal 1 (Get-ReaderUps).Count "started on the next ($health)"
+            Assert-True ((Get-CallIndex 'docker run --rm*llama.cpp*') -lt (Get-CallIndex '*up -d --no-deps shelf-reader*')) $health
+            Assert-Equal 'healthy' $global:CmMachine.ReaderHealth "it loads ($health)"
+        }
+    }
+}
+
+Test-Case 'shelf reader: while the copy is pending (image to pull, volume unreadable) a reader that is on stays as it is and nothing is recreated (#804)' {
+    foreach ($how in 'pull', 'unreadable') {
+        $global:CmCalls.Clear()
+        Use-TestReaderRoot -State (Get-ReaderOnState) {
+            param($root)
+            Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderHealth = 'healthy'; ApiEndpoint = $script:ReaderUrl
+                ReaderLabelHash = 'cfg-old'; ComposeHash = 'cfg-new'; ReaderImagePresent = ($how -ne 'pull'); VolumeInspectFails = ($how -eq 'unreadable') }
+            Add-TestReaderFiles $root -NoVolume
+            foreach ($i in 1..2) { $r = Invoke-TestReaderPass $root }
+            Assert-Equal 0 (Get-ReaderUps).Count "no recreation ($how)"
+            Assert-Equal 0 (Get-ReaderStops).Count "no stop ($how)"
+            Assert-True ([bool]$r.State.shelfReader.on) $how
+            Assert-False ($r.Log -match 'ALERT') $how
+            Assert-Equal 'cfg-old' $global:CmMachine.ReaderLabelHash $how
+            if ($how -eq 'pull') {
+                Assert-Equal 1 (Get-Calls 'docker' 'docker pull*llama.cpp*').Count 'the image is pulled in a pass of its own'
+                Assert-Equal 1 (Get-FillRuns).Count 'and copied in the next'
+            }
+            else {
+                Assert-Equal 0 (Get-FillRuns).Count 'nothing is copied while docker cannot say what the volume holds'
+                Assert-Equal 0 (Get-VolumeCreates).Count
+                Assert-Equal 0 (Get-ReaderDockerMutations).Count "no mutating call: $((Get-ReaderDockerMutations | ForEach-Object Display) -join '; ')"
+                Assert-Match "$($r.State.shelfReader.note)" 'the model volume could not be read'
+            }
+        }
+    }
+}
+
+Test-Case 'shelf reader: a volume that was removed or created again, or new pins, are copied again; the same volume is not (#804)' {
+    foreach ($how in 'removed', 'recreated', 'pins') {
+        $global:CmCalls.Clear()
+        Use-TestReaderRoot -State (Get-UpToDateState) {
+            param($root)
+            Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderImagePresent = $true }
+            Add-TestReaderFiles $root
+            Invoke-TestReaderUntilOn $root | Out-Null
+            $global:CmCalls.Clear()
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal 0 (Get-FillRuns).Count "the recorded volume is not copied again ($how)"
+            switch ($how) {
+                'removed' { $global:CmMachine.VolumeCreatedAt = ''; $global:CmMachine.VolumeFilled = $false }
+                'recreated' { $global:CmMachine.VolumeCreatedAt = '2026-11-13T01:02:03Z'; $global:CmMachine.VolumeFilled = $false }
+                'pins' {
+                    $text = 'a newer model for the tests'
+                    $script:ReaderContent[$script:ReaderModel] = $text
+                    Add-TestReaderFile $root $script:ReaderModel | Out-Null
+                    $global:CmShelfReaderFiles[0] = @{ Name = $script:ReaderModel; Size = [long]$text.Length; Sha256 = (Get-TestSha256 $text) }
+                }
+            }
+            try {
+                $r = Invoke-TestReaderPass $root
+                Assert-Equal 1 (Get-FillRuns).Count "copied again ($how)"
+                Assert-Equal ($(if ($how -eq 'removed') { 1 } else { 0 })) (Get-VolumeCreates).Count "a missing volume is created first ($how)"
+                Assert-Equal (ConvertTo-CmVolumeStamp $global:CmMachine.VolumeCreatedAt) (ConvertTo-CmVolumeStamp $r.State.shelfReader.volume.createdAt) $how
+                if ($how -eq 'pins') { Assert-Match (@((Get-FillRuns)[0].Arguments) -join ' ') (Get-TestSha256 'a newer model for the tests') 'with the new pin' }
+                $global:CmCalls.Clear()
+                Invoke-TestReaderPass $root | Out-Null
+                Assert-Equal 0 (Get-FillRuns).Count "then not again ($how)"
+            }
+            finally { $script:ReaderContent[$script:ReaderModel] = 'fake model weights for the tests' }
+        }
+    }
+}
+
+Test-Case 'shelf reader: a fill that fails or times out is a reader failure: alert, no record, no start, nothing rolled back, tried again later (#804)' {
+    foreach ($case in @(
+            @{ What = 'room'; Exit = 1; Output = @('cm-fill: not enough room in the model volume: 7287518720 bytes are needed (the model files plus 1 GB), 1048576 are free'); Want = 'not enough room in the model volume' }
+            @{ What = 'hash'; Exit = 1; Output = @('cm-fill: mmproj-Qwen3VL-8B-Instruct-F16.gguf does not match its pinned SHA-256 in the model volume'); Want = 'does not match its pinned SHA-256' }
+            @{ What = 'timeout'; Exit = 124; Output = @('timed out after 600 seconds'); Want = 'did not finish within 10 minutes' }
+        )) {
+        $global:CmCalls.Clear()
+        Use-TestReaderRoot -State (Get-OldGoodState) {
+            param($root)
+            Start-TestReaderMachine @{ Gpu = $true; ReaderImagePresent = $true; FillExit = $case.Exit; FillOutput = $case.Output }
+            Add-TestReaderFiles $root -NoVolume
+            $t0 = [DateTime]::UtcNow
+            $global:CmNow = $t0
+            Assert-Equal 'deployed' (Invoke-TestReaderPass $root).Result.Outcome
+            $r = Invoke-TestReaderPass $root
+            Assert-Equal 'up-to-date' $r.Result.Outcome $case.What
+            Assert-Equal 0 $r.Result.ExitCode $case.What
+            Assert-Match $r.Log "ERROR ALERT shelf-reader .*$([regex]::Escape($case.Want))" $case.What
+            Assert-Equal 1 (Get-ReaderAlerts).Count $case.What
+            Assert-False $r.State.shelfReader.ContainsKey('volume') "nothing is recorded ($($case.What))"
+            Assert-Equal $script:Sha2 $r.State.current.sha "nothing rolled back ($($case.What))"
+            Assert-Equal 0 (Get-ApiSwitches).Count $case.What
+            $stops = @(Get-Calls 'docker' 'docker stop*collectionmaxxing-models-fill*')
+            Assert-Equal ($(if ($case.What -eq 'timeout') { 1 } else { 0 })) $stops.Count "the helper is stopped by name after a timeout only ($($case.What))"
+            foreach ($s in $stops) { Assert-True ($s.TimeoutSeconds -gt 0) 'the stop has a timeout' }
+            foreach ($minutes in 2, 60) { $global:CmNow = $t0.AddMinutes($minutes); Invoke-TestReaderPass $root | Out-Null }
+            Assert-Equal 0 (Get-ReaderUps).Count "never started on the half-filled volume ($($case.What))"
+            Assert-Equal 1 (Get-FillRuns).Count "and not copied again at once ($($case.What))"
+            $global:CmMachine.FillExit = 0
+            $global:CmNow = $t0.AddHours(6).AddMinutes(5)
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal 2 (Get-FillRuns).Count "copied again after the wait ($($case.What))"
+            $global:CmNow = $t0.AddHours(6).AddMinutes(7)
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal 1 (Get-ReaderUps).Count "then started ($($case.What))"
+        }
+    }
+}
+
+Test-Case 'shelf reader: a volume that cannot be created is a reader failure and nothing is copied (#804)' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderImagePresent = $true; VolumeCreateFails = $true }
+        Add-TestReaderFiles $root -NoVolume
+        $r = Invoke-TestReaderPass $root
+        Assert-Match $r.Log 'ERROR ALERT shelf-reader could not create the model volume'
+        Assert-Equal 0 (Get-FillRuns).Count
+        Assert-Equal 0 (Get-ReaderUps).Count
+    }
+}
+
+Test-Case 'shelf reader: every call of the fill path has a timeout, and its pass fits the lock budget (#804)' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; FillExit = 124; FillOutput = @('timed out after 600 seconds') }
+        Add-TestReaderFiles $root -NoVolume
+        Invoke-TestReaderPass $root | Out-Null   # pulls the image
+        $global:CmNow = $null
+        Invoke-TestReaderPass $root | Out-Null   # creates, fills, times out, stops the helper
+        $mine = @($global:CmCalls | Where-Object { $_.Command -eq 'docker' -and $_.Display -match 'volume |llama\.cpp|models-fill' })
+        foreach ($kind in 'volume inspect', 'volume create', 'docker run --rm', 'docker stop', 'docker pull', 'image inspect') { Assert-True (@($mine | Where-Object { $_.Display -match $kind }).Count -ge 1) "the fill path made a $kind call" }
+        foreach ($c in $mine) { Assert-True ($c.TimeoutSeconds -gt 0) "no timeout on: $($c.Display)" }
+        $worst = Get-CmShelfReaderWorstCaseSeconds -Ctx (New-CmContext -Root $root)
+        $fill = 30 + 60 + 30 + 30 + 60 + 600 + 60 + 60
+        Assert-True ($worst -ge $fill) "the budget ($worst s) covers the fill path ($fill s)"
+        Assert-Equal 1020 $worst 'the start path is still the longest: 17 minutes, as the README says'
+        Assert-True ($worst + $script:CmPruneSecondsPerPoll -lt $script:CmStaleLockMinutes * 60 - 300) 'well under the stale-lock alert'
+    }
+}
+
+Test-Case 'shelf reader: the dry-run plan lists the volume read, its creation and the fill helper (#804)' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        $plan = (Get-CmShelfReaderPlan -Ctx (New-TestContext -Root $root)) -join "`n"
+        Assert-Match $plan ([regex]::Escape("docker volume inspect $($script:ModelsVolume)"))
+        Assert-Match $plan ([regex]::Escape("docker volume create"))
+        Assert-Match $plan 'docker run --rm --name collectionmaxxing-models-fill --pull never --network none --cap-drop ALL --security-opt no-new-privileges -v "?<models folder>:/src:ro"? -v collectionmaxxing_models:/models --entrypoint sh'
+    }
+}
+
+# ---- the new scripts against the deployed commit's old compose file (the PC, 2026-11-12) --------------------------------------
+
+Test-Case 'shelf reader: new scripts against a deployed commit from before #804 keep a working reader as it is, and the new commit then fills, recreates and checks it' {
+    Use-TestReaderRoot -State (Get-ReaderStateAfter803) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Sha = $script:Sha1; Up = $script:Sha1; ReaderHealth = 'healthy'; ApiEndpoint = $script:ReaderUrl; ReaderImagePresent = $true
+            ReaderStartedAt = '2026-11-12T08:00:00.123456789Z'; ReaderLabelHash = 'cfg-803'; ComposeHash = 'cfg-803'; ReaderStartsAs = 'starting'
+            ComposeAt = @{ $script:Sha1 = $script:ComposeBefore804 } }
+        Add-TestReaderFiles $root -NoVolume
+        $log = ''
+        foreach ($i in 1..3) { $p = Invoke-TestReaderPass $root; Assert-Equal 'up-to-date' $p.Result.Outcome; $log += $p.Log }
+        Assert-Equal 0 (Get-FillRuns).Count 'the old definition needs no volume'
+        Assert-Equal 0 (Get-VolumeCreates).Count
+        Assert-Equal 0 (Get-ReaderUps).Count 'no recreation'
+        Assert-Equal 0 (Get-ReaderStops).Count 'no stop'
+        Assert-Equal 0 (Get-ReaderDockerMutations).Count "no mutating call: $((Get-ReaderDockerMutations | ForEach-Object Display) -join '; ')"
+        Assert-True ([bool]$p.State.shelfReader.on) 'still on'
+        Assert-Equal 'on' "$($p.State.shelfReader.note)"
+        Assert-False ($log -match 'ALERT|WARN') "no alert and no warning: $log"
+        Assert-Equal 0 (Get-ReaderAlerts).Count
+        Assert-Equal 0 @(Get-Calls 'docker' '*.reader.*config --format json*').Count 'the guard is never run on the deployed commit''s old file'
+
+        # The new commit deploys (its compose file uses the volume, so the reader's hash changes).
+        $global:CmMachine.Sha = $script:Sha2
+        $global:CmMachine.ComposeHash = 'cfg-804'
+        $global:CmCalls.Clear()
+        Assert-Equal 'deployed' (Invoke-TestReaderPass $root).Result.Outcome
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 1 (Get-FillRuns).Count 'filled'
+        Assert-Equal 0 (Get-ReaderUps).Count 'not yet recreated'
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 1 (Get-ReaderUps).Count 'then recreated once'
+        $global:CmMachine.ReaderHealth = 'healthy'
+        $on = Invoke-TestReaderPass $root
+        Assert-Equal 1 (Get-ReaderLogReads).Count 'and checked'
+        Assert-True ([bool]$on.State.shelfReader.on)
+        Assert-Equal 0 (Get-ApiSwitches).Count
+        Assert-Equal 0 (Get-ReaderAlerts).Count
+    }
+}
+
+Test-Case 'shelf reader: an old definition whose reader is off is started as before, without a volume (#804)' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ComposeAt = @{ $script:Sha2 = $script:ComposeBefore804 } }
+        Add-TestReaderFiles $root -NoVolume
+        $global:CmMachine.VolumeFilled = $true   # the old definition reads the host folder, so the fake reader loads
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 1 (Get-ReaderUps).Count
+        Assert-Equal 0 (Get-FillRuns).Count
+        Assert-Equal 0 (Get-VolumeReads).Count
+    }
+}
+
+# ---- a newly deployed commit clears the retry wait (the PC, 2026-11-12) --------------------------------------------------------
+
+Test-Case 'shelf reader: a failure waits 6 hours at its own commit, a newly deployed commit is tried at once, and a failure there waits again' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderLogOnStart = @(Get-TestReaderCpuLog) }
+        Add-TestReaderFiles $root
+        $t0 = [DateTime]::UtcNow
+        $global:CmNow = $t0
+        Invoke-TestReaderPass $root | Out-Null
+        $global:CmNow = $t0.AddMinutes(2)
+        $failed = Invoke-TestReaderPass $root
+        Assert-Match $failed.Log 'ERROR ALERT shelf-reader the reader started but cannot use the graphics card'
+        Assert-Equal $script:Sha2 "$($failed.State.shelfReader.failedAt)" 'the failure remembers its commit'
+        $global:CmNow = $t0.AddMinutes(30)
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 1 (Get-ReaderUps).Count 'still the same commit: still waiting'
+        # The fix arrives in a new commit.
+        $sha3 = 'c3' * 20
+        $global:CmMachine.Sha = $sha3; $global:CmMachine.Graph[$sha3] = @($script:Sha1, $script:Sha2)
+        $global:CmMachine.ReaderLogOnStart = @(Get-TestReaderGpuLog)
+        $global:CmNow = $t0.AddMinutes(32)
+        Assert-Equal 'deployed' (Invoke-TestReaderPass $root).Result.Outcome
+        $global:CmNow = $t0.AddMinutes(34)
+        $retry = Invoke-TestReaderPass $root
+        Assert-Equal 2 (Get-ReaderUps).Count 'the next quiet poll starts the reader, 5 hours early'
+        Assert-Match $retry.Log 'was deployed after the last failure, so the reader is tried again now'
+        $global:CmNow = $t0.AddMinutes(36)
+        $on = Invoke-TestReaderPass $root
+        Assert-True ([bool]$on.State.shelfReader.on) 'and it comes on'
+        # A failure at the new commit waits again.
+        $global:CmMachine.ReaderLog = @(Get-TestReaderCpuLog)
+        $global:CmMachine.ReaderStartedAt = ([DateTime]$t0).AddMinutes(37).ToString('o')
+        $global:CmNow = $t0.AddMinutes(38)
+        $again = Invoke-TestReaderPass $root
+        Assert-False ([bool]$again.State.shelfReader.on)
+        Assert-Equal $sha3 "$($again.State.shelfReader.failedAt)"
+        foreach ($minutes in 40, 120) { $global:CmNow = $t0.AddMinutes($minutes); Invoke-TestReaderPass $root | Out-Null }
+        Assert-Equal 2 (Get-ReaderUps).Count 'waiting again at the new commit'
+    }
+}
+
+Test-Case 'shelf reader: a wait recorded without its commit (before this change) gives the deployed commit one try' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        $state = Get-TestState -Root $root
+        $state['shelfReader']['retryAt'] = [DateTimeOffset]::UtcNow.AddHours(5).ToUnixTimeSeconds()
+        $state['shelfReader']['note'] = 'off after a failure'
+        Set-TestState -Root $root -State $state
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 1 (Get-ReaderUps).Count
+    }
+}
+
+# ---- fix round findings carried into #804 (the card check's unknown verdict) ---------------------------------------------------
+
+Test-Case 'shelf reader: one unreadable start log of a start that began long ago does not stop a working reader; it fails only after 10 minutes unreadable' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        $t0 = [DateTime]::UtcNow
+        $global:CmNow = $t0
+        Invoke-TestReaderUntilOn $root | Out-Null
+        # Docker restarted the container 15 minutes ago (restart: unless-stopped) and the deployer sees the new start now.
+        $global:CmMachine.ReaderStartedAt = $t0.AddMinutes(-15).ToString('o')
+        $global:CmMachine.ReaderLogFails = $true
+        $global:CmCalls.Clear()
+        $global:CmNow = $t0.AddMinutes(1)
+        $once = Invoke-TestReaderPass $root
+        Assert-True ([bool]$once.State.shelfReader.on) 'one failed read does not stop it'
+        Assert-Equal 0 (Get-ReaderStops).Count
+        Assert-False ($once.Log -match 'ALERT') 'and raises nothing'
+        Assert-True ($once.State.shelfReader.ContainsKey('cardUnknown')) 'it remembers since when the check is unreadable'
+        $global:CmMachine.ReaderLogFails = $false
+        $global:CmNow = $t0.AddMinutes(3)
+        $read = Invoke-TestReaderPass $root
+        Assert-True ([bool]$read.State.shelfReader.on) 'a read that succeeds passes it'
+        Assert-False ($read.State.shelfReader.ContainsKey('cardUnknown')) 'and clears the record'
+        # Again, but it stays unreadable: a failure once it has been unreadable for 10 minutes, not before.
+        $global:CmMachine.ReaderStartedAt = $t0.AddMinutes(-5).ToString('o')
+        $global:CmMachine.ReaderLogFails = $true
+        foreach ($minutes in 4, 8, 12) {
+            $global:CmNow = $t0.AddMinutes($minutes)
+            $p = Invoke-TestReaderPass $root
+            Assert-True ([bool]$p.State.shelfReader.on) "still on at $minutes minutes"
+        }
+        $global:CmNow = $t0.AddMinutes(14)
+        $late = Invoke-TestReaderPass $root
+        Assert-False ([bool]$late.State.shelfReader.on) 'unreadable for 10 minutes and past the window: stopped'
+        Assert-Match $late.Log 'ERROR ALERT shelf-reader the reader''s start log could not be read, so the graphics card could not be checked'
+        Assert-Equal 1 (Get-ReaderStops).Count
+        Assert-Equal 0 (Get-ApiSwitches).Count
+    }
+}
+
+Test-Case 'shelf reader: when the container''s start time cannot be read the failure says so, not that the log could not be read' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        $t0 = [DateTime]::UtcNow
+        $global:CmNow = $t0
+        Invoke-TestReaderUntilOn $root | Out-Null
+        # A new container (another id) whose docker inspect fails.
+        $global:CmMachine.ReaderId = 'reader-other'
+        $global:CmMachine.ReaderInspectFails = $true
+        $global:CmCalls.Clear()
+        $global:CmNow = $t0.AddMinutes(11)
+        $first = Invoke-TestReaderPass $root
+        Assert-True ([bool]$first.State.shelfReader.on) 'waits first'
+        Assert-Equal 'on, but the reader container''s start time could not be read to check the graphics card; the next poll tries again' "$($first.State.shelfReader.note)"
+        $global:CmNow = $t0.AddMinutes(22)
+        $late = Invoke-TestReaderPass $root
+        Assert-False ([bool]$late.State.shelfReader.on)
+        Assert-Match $late.Log 'ERROR ALERT shelf-reader the reader container''s start time could not be read, so the graphics card could not be checked'
+        Assert-False ($late.Log -match 'start log could not be read') 'not the log'
+        Assert-Equal 0 (Get-ReaderLogReads).Count 'no log was read without a start time'
+    }
+}
+
+Test-Case 'shelf reader: with docker inspect failing, the container id already checked keeps the reader on, and another id is not passed' {
+    foreach ($same in $true, $false) {
+        $global:CmCalls.Clear()
+        Use-TestReaderRoot -State (Get-UpToDateState) {
+            param($root)
+            Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+            Add-TestReaderFiles $root
+            $t0 = [DateTime]::UtcNow
+            $global:CmNow = $t0
+            if ($same) {
+                Invoke-TestReaderUntilOn $root | Out-Null
+                $global:CmMachine.ReaderInspectFails = $true
+                foreach ($minutes in 15, 30, 60) { $global:CmNow = $t0.AddMinutes($minutes); $p = Invoke-TestReaderPass $root }
+                Assert-True ([bool]$p.State.shelfReader.on) 'the checked id stays on'
+                Assert-Equal 0 (Get-ReaderStops).Count 'never stopped'
+                Assert-False ($p.State.shelfReader.ContainsKey('cardUnknown')) 'and never counted as unreadable'
+            }
+            else {
+                # A healthy reader not yet handed over, whose start time cannot be read: it is not taken as checked.
+                Invoke-TestReaderPass $root | Out-Null
+                $global:CmMachine.ReaderInspectFails = $true
+                foreach ($minutes in 2, 4) { $global:CmNow = $t0.AddMinutes($minutes); $p = Invoke-TestReaderPass $root }
+                Assert-Equal 0 (Get-ApiSwitches).Count 'not handed over'
+                Assert-False ([bool]$p.State.shelfReader.on) 'not on'
+                Assert-Equal 0 (Get-ReaderLogReads).Count
+            }
+        }
     }
 }
