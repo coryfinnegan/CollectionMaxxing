@@ -220,6 +220,8 @@ function New-FakeMachine {
         VolumeInspectFails      make `docker volume inspect` fail (docker not answering, not "no such volume")
         VolumeCreateFails       make `docker volume create` fail
         FillExit, FillOutput    exit code and output of the fill helper (`docker run --rm ... llama.cpp ... -c <script>`); 124 = timed out
+        FillLeftover            a helper container is left over under collectionmaxxing-models-fill: a run fails with 125
+                                ("name already in use") until `docker rm -f collectionmaxxing-models-fill` removes it
         (read back) Fills, VolumeCreates   how many fill helpers ran to success and volumes were created
     #>
     param([hashtable]$Opt = @{})
@@ -244,7 +246,7 @@ function New-FakeMachine {
     $m.ReaderLabelHash = 'cfg-hash-1'; $m.ComposeHash = 'cfg-hash-1'; $m.ComposeHashFails = $false; $m.ReaderInspectFails = $false
     $m.ReaderLog = @(Get-TestReaderGpuLog); $m.ReaderLogOnStart = @(Get-TestReaderGpuLog); $m.ReaderLogFails = $false; $m.ReaderUpKeepsHash = $false
     $m.VolumeCreatedAt = ''; $m.VolumeFilled = $false; $m.VolumeInspectFails = $false; $m.VolumeCreateFails = $false
-    $m.FillExit = 0; $m.FillOutput = @(); $m.Fills = 0; $m.VolumeCreates = 0
+    $m.FillExit = 0; $m.FillOutput = @(); $m.Fills = 0; $m.VolumeCreates = 0; $m.FillLeftover = $false
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     if ($m.ImageRows -isnot [System.Collections.Generic.List[string]]) { $m.ImageRows = [System.Collections.Generic.List[string]]::new([string[]]@($m.ImageRows)) }
     $global:CmMachine = $m
@@ -308,8 +310,14 @@ function New-FakeMachine {
                     }
                     return & $ok @('collectionmaxxing_models')
                 }
+                if ($line -match '^rm -f collectionmaxxing-models-fill$') {
+                    if (-not $m.FillLeftover) { return [pscustomobject]@{ ExitCode = 1; Output = @('Error response from daemon: No such container: collectionmaxxing-models-fill') } }
+                    $m.FillLeftover = $false; return & $ok @('collectionmaxxing-models-fill')
+                }
                 if ($line -match '^run --rm .*ggml-org/llama\.cpp') {
-                    if ($m.FillExit -ne 0) { return [pscustomobject]@{ ExitCode = $m.FillExit; Output = @($m.FillOutput) } }
+                    if ($m.FillLeftover) { return [pscustomobject]@{ ExitCode = 125; Output = @('docker: Error response from daemon: Conflict. The container name "/collectionmaxxing-models-fill" is already in use by container "0123abcd".') } }
+                    # The real script empties the volume first, so a failed copy leaves it without the files.
+                    if ($m.FillExit -ne 0) { $m.VolumeFilled = $false; return [pscustomobject]@{ ExitCode = $m.FillExit; Output = @($m.FillOutput) } }
                     if (-not $m.VolumeCreatedAt) { $m.VolumeCreatedAt = '2026-11-12T06:00:00Z' }   # docker run makes a missing named volume
                     $m.VolumeFilled = $true; $m.Fills++
                     return & $ok @('cm-fill: done')

@@ -38,7 +38,8 @@
 #     hashes and the volume's CreatedAt); a poll whose record matches makes one `docker volume inspect` and nothing else.
 #     A missing or recreated volume, or changed pins, mean copy again. The reader is never started or recreated while the
 #     volume is not verified: the pass that pulls the image for the copy, or copies, returns (one heavy thing per pass), and
-#     a reader that is on stays as it is meanwhile. A failed copy is a reader failure (alert, retry later), never a deploy's.
+#     a reader that is on stays as it is meanwhile. A failed copy is an alert and a retry later, never a deploy's failure,
+#     and it never stops a reader that is on: that one keeps running and is watched as usual until the volume verifies.
 #     A definition from before #804 (it binds ${CM_MODELS_DIR}:/models) needs no volume: for a few minutes after the
 #     deployer's scripts move to main they run against the deployed commit's old compose file, and act as before.
 #   * A newly deployed commit gets one try at once (the failure's commit is shelfReader.failedAt): it may carry the fix.
@@ -154,8 +155,9 @@ function Get-CmShelfReaderWorstCaseSeconds {
     $start = $call + $git + $volume + $call + (2 * $call) + $call + $script:CmShelfReaderPullSeconds + $script:CmShelfReaderUpSeconds + $script:CmShelfReaderStopSeconds
     # The switch-on path reads the container, compose's hash and the start log (the card check) before the api.
     $switch = $call + $git + $volume + $call + (3 * $call) + (2 * $call) + (2 * ($script:CmShelfReaderUpSeconds + $smoke)) + $script:CmShelfReaderStopSeconds
-    # The fill path: image inspect, volume create and inspect again, the helper, its stop on a timeout, the reader's stop.
-    $fill = $call + $git + $volume + $call + (2 * $call) + $script:CmShelfReaderFillSeconds + $script:CmShelfReaderStopSeconds + $script:CmShelfReaderStopSeconds
+    # The fill path: image inspect, volume create and inspect again, a leftover helper's removal, the helper, its stop on
+    # a timeout, the reader's stop.
+    $fill = $call + $git + $volume + $call + (2 * $call) + $script:CmShelfReaderStopSeconds + $script:CmShelfReaderFillSeconds + $script:CmShelfReaderStopSeconds + $script:CmShelfReaderStopSeconds
     # The fill's image pull: image inspect, the pull, the reader's stop after a failed pull.
     $fillPull = $call + $git + $volume + $call + $script:CmShelfReaderPullSeconds + $script:CmShelfReaderStopSeconds
     [math]::Max([math]::Max($start, $switch), [math]::Max($fill, $fillPull))
@@ -171,6 +173,7 @@ function Get-CmShelfReaderPlan {
     Format-CmCommand 'docker' @('volume', 'inspect', $script:CmModelsVolume, '--format', '{{.CreatedAt}}')
     '(only when the volume does not hold the verified files: create it if missing, then copy them in, in a pass of its own; the reader starts on a later pass)'
     Format-CmCommand 'docker' @('volume', 'create', '--label', 'com.docker.compose.project=collectionmaxxing', '--label', "com.docker.compose.volume=$($script:CmModelsVolumeKey)", $script:CmModelsVolume)
+    Format-CmCommand 'docker' @('rm', '-f', $script:CmShelfReaderFillName)
     $fillArgs = Get-CmModelsFillArgs -Dir $dir
     if ($fillArgs) { Format-CmCommand 'docker' $fillArgs }
     Format-CmCommand 'docker' @('stop', '--time', '5', $script:CmShelfReaderFillName)
@@ -471,17 +474,18 @@ function Invoke-CmApiRestart {
 function Get-CmModelsFillScript {
     <#
       The fill helper's shell script, a constant: the file names, hashes and sizes come as arguments in threes ($1 name,
-      $2 SHA-256, $3 size), never as shell text. It removes leftover *.partial copies and the old files of these names,
-      checks there is room for the files plus 1 GB, then for each file copies /src/<name> to /models/<name>.partial,
+      $2 SHA-256, $3 size), never as shell text. The volume is the deployer's alone, so it first removes every regular
+      file directly in /models (old copies, leftover *.partial files, an older model's files; not symbolic links, and
+      nothing in a sub-folder), then checks there is room for the files plus 1 GB, then for each file copies /src/<name> to /models/<name>.partial,
       checks its SHA-256 inside the volume and only then renames it into place. Any problem: one "cm-fill: ..." line and
       exit 1, with no .partial left behind. POSIX sh (the image's sh is dash).
     #>
     @(
         'set -u; dst=/models; src=/src; room=1073741824;'
         'fail() { echo "cm-fill: $*"; exit 1; };'
-        'rm -f -- "$dst"/*.partial || fail "could not remove the leftover partial copies";'
+        'for f in "$dst"/* "$dst"/.[!.]*; do if [ -f "$f" ] && [ ! -L "$f" ]; then rm -f -- "$f" || fail "could not remove the old file ${f##*/}"; fi; done;'
         'need=$room; i=0;'
-        'for a in "$@"; do i=$((i + 1)); case $((i % 3)) in 1) rm -f -- "$dst/$a" || fail "could not remove the old $a";; 0) need=$((need + a));; esac; done;'
+        'for a in "$@"; do i=$((i + 1)); case $((i % 3)) in 0) need=$((need + a));; esac; done;'
         'kb=$(df -Pk "$dst" | { k=; while read -r f b u av rest; do k=$av; done; echo "$k"; });'
         'case $kb in ""|*[!0-9]*) fail "could not read the free space in the model volume (df)";; esac;'
         '[ $((kb * 1024)) -ge $need ] || fail "not enough room in the model volume: $need bytes are needed (the model files plus 1 GB), $((kb * 1024)) are free";'
@@ -571,13 +575,14 @@ function Test-CmShelfReaderUsesVolume {
 function Update-CmModelsVolume {
     <#
       Makes sure the model volume holds the two verified files before the reader is started or recreated on it. Returns
-      @{ Ready; Fail; Note }. A poll whose record (Sr.volume) matches the pins and the volume's CreatedAt is one read and
+      @{ Ready; Fail; Note; Heavy; Filled }. A poll whose record (Sr.volume) matches the pins and the volume's CreatedAt is one read and
       Ready. Otherwise it does ONE heavy thing and is not Ready this pass: pulls the llama.cpp image if it is missing (the
       copy comes on the next pass), or creates the volume if needed and runs the fill helper (10-minute timeout; on a
       timeout the helper is stopped by name). Only a fill that exited 0 is recorded. Fail is a reason for the failure path.
+      Heavy: this pass pulled or copied, so it ends here. Not Ready, not Heavy and no Fail: the volume could not be read.
     #>
     param($Sr, [string]$Dir)
-    $result = { param($ready, $fail = '', $note = '') [pscustomobject]@{ Ready = $ready; Fail = $fail; Note = $note } }
+    $result = { param($ready, $fail = '', $note = '', $heavy = $false, $filled = $false) [pscustomobject]@{ Ready = $ready; Fail = $fail; Note = $note; Heavy = $heavy; Filled = $filled } }
     $vol = Get-CmModelsVolume
     if ($null -eq $vol) { return & $result $false '' 'the model volume could not be read (docker volume inspect); the next poll tries again' }
     if ($vol.Exists -and (Test-CmModelsVolumeRecorded -Sr $Sr -CreatedAt $vol.CreatedAt)) { return & $result $true }
@@ -588,7 +593,7 @@ function Update-CmModelsVolume {
         Write-CmLog "shelf reader: pulling $($script:CmShelfReaderImage) (about 2.6 GB, once) for the copy into the model volume"
         $pull = Invoke-Cm -Mutating -Command 'docker' -Arguments @('pull', '--quiet', $script:CmShelfReaderImage) -TimeoutSeconds $script:CmShelfReaderPullSeconds
         if ($pull.ExitCode -ne 0) { return & $result $false "could not pull the llama.cpp image (docker exited $($pull.ExitCode))" }
-        return & $result $false '' 'pulled the llama.cpp image; the model files are copied into the model volume on the next poll'
+        return & $result $false '' 'pulled the llama.cpp image; the model files are copied into the model volume on the next poll' $true
     }
     if (-not $vol.Exists) {
         # Created with compose's own labels, so compose takes it as the project's volume and does not warn.
@@ -599,6 +604,9 @@ function Update-CmModelsVolume {
         if ($null -eq $vol -or -not $vol.Exists) { return & $result $false "the model volume $($script:CmModelsVolume) could not be read after it was created" }
     }
     [void]$Sr.Remove('volume')
+    # A helper left over under the fixed name (one that hung and whose stop failed) would make every later run fail with
+    # "name already in use". It is the deployer's own container: removed by its name first ("no such container" is fine).
+    Invoke-Cm -Mutating -Command 'docker' -Arguments @('rm', '-f', $script:CmShelfReaderFillName) -TimeoutSeconds $script:CmShelfReaderStopSeconds | Out-Null
     Write-CmLog "shelf reader: copying the model files into the Docker volume $($script:CmModelsVolume) (about a minute)"
     $fill = Invoke-Cm -Mutating -Command 'docker' -Arguments $fillArgs -TimeoutSeconds $script:CmShelfReaderFillSeconds
     if ($fill.ExitCode -ne 0) {
@@ -613,7 +621,7 @@ function Update-CmModelsVolume {
     }
     $Sr['volume'] = New-CmModelsVolumeRecord -CreatedAt $vol.CreatedAt
     Write-CmLog "shelf reader: the model files are in the volume $($script:CmModelsVolume) and verified (SHA-256); the reader is started on it on the next poll"
-    & $result $false '' 'the model files were copied into the model volume; the reader is started on it on the next poll'
+    & $result $false '' 'the model files were copied into the model volume; the reader is started on it on the next poll' $true $true
 }
 
 function Invoke-CmShelfReader {
@@ -716,10 +724,36 @@ function Invoke-CmShelfReader {
 
         # 5. The model volume (#804): filled and verified before the reader is started or recreated on it. Not for a
         # definition from before #804 (it binds the host folder): the scripts run against it until the new commit deploys.
+        # While it is not verified ($volumeOk false) nothing is started or recreated, but a reader in use is still watched
+        # below (health, card check). A failed copy while the reader is in use does NOT stop it: an alert, and the copy
+        # waits (volumeRetryAt, volumeFailedAt; a new commit tries at once). A reader out of use fails as usual.
+        $volumeOk = $true
         if (Test-CmShelfReaderUsesVolume -RCtx $rc) {
-            $volume = Update-CmModelsVolume -Sr $sr -Dir (Get-CmModelsDir -Ctx $Ctx -EnvMap $envMap)
-            if ($volume.Fail) { & $fail $volume.Fail; return }
-            if (-not $volume.Ready) { & $note $volume.Note; return }
+            $volumeOk = $false
+            $copyWaits = (ConvertTo-CmLong $sr['volumeRetryAt']) -gt $nowSec -and "$($sr['volumeFailedAt'])" -ceq $tag
+            $hadCopyFailure = $sr.ContainsKey('volumeFailedAt')
+            if ($copyWaits) {
+                if (-not (& $inUse)) { return }
+            }
+            else {
+                [void]$sr.Remove('volumeRetryAt'); [void]$sr.Remove('volumeFailedAt')
+                $volume = Update-CmModelsVolume -Sr $sr -Dir (Get-CmModelsDir -Ctx $Ctx -EnvMap $envMap)
+                if ($volume.Ready) { $volumeOk = $true }
+                elseif ($volume.Fail) {
+                    if (-not (& $inUse)) { & $fail $volume.Fail; return }
+                    $retry = $now.AddHours($script:CmShelfReaderRetryHours)
+                    Write-CmShelfReaderAlert -Ctx $Ctx -EnvMap $envMap -Why "$($volume.Fail); the reader keeps running as it is (it is not recreated or restarted until the model volume verifies), the app is not affected, and the deployer tries the copy again after $(Format-CmAlertTime $retry), or sooner once a new commit is deployed"
+                    $sr['volumeRetryAt'] = ConvertTo-CmEpoch $retry
+                    $sr['volumeFailedAt'] = $tag
+                    return
+                }
+                elseif ($volume.Heavy) {
+                    if ($volume.Filled -and $hadCopyFailure) { & $clear 'the model files were copied into the model volume' }
+                    & $note $volume.Note
+                    return
+                }
+                elseif (-not (& $inUse)) { & $note $volume.Note; return }
+            }
         }
 
         # 6. The container.
@@ -759,7 +793,7 @@ function Invoke-CmShelfReader {
             }
             else {
                 if ($sr.ContainsKey('hashUnread')) { [void]$sr.Remove('hashUnread') }
-                if ($want -ne $box.ConfigHash) {
+                if ($want -ne $box.ConfigHash -and $volumeOk) {
                     if ("$($sr['recreatedAt'])" -ne $tag) {
                         $sr['recreatedAt'] = $tag
                         $why = & $start
@@ -824,7 +858,7 @@ function Invoke-CmShelfReader {
                 $sr['downSince'] = 0; & $note 'on'; return
             }
             if ((ConvertTo-CmLong $sr['downSince']) -le 0) { $sr['downSince'] = $nowSec }
-            if ($health -in 'missing', 'stopped') {
+            if ($health -in 'missing', 'stopped' -and $volumeOk) {
                 $why = & $start
                 if ($why) { & $fail $why; return }
             }
@@ -839,9 +873,11 @@ function Invoke-CmShelfReader {
         switch ($health) {
             { $_ -in 'missing', 'stopped' } {
                 if ((ConvertTo-CmLong $sr['startedAt']) -gt 0) { & $fail 'the reader stopped after it was started (see docker compose logs shelf-reader)'; return }
+                if (-not $volumeOk) { return }
                 $why = & $start
                 if ($why) { & $fail $why; return }
                 $sr['startedAt'] = $nowSec
+                $sr['note'] = 'starting; the api gets the endpoint once the reader is healthy'
                 # Not waited for here: the next quiet poll looks at its health.
                 Write-CmLog 'shelf reader: started the shelf-reader container; the api gets its endpoint once it is healthy'
                 return

@@ -1543,9 +1543,9 @@ function Find-TestBash {
 }
 function Invoke-TestFillScript {
     <# Runs the fill helper's real script with bash on two temp folders standing in for /src and /models. #>
-    param([string]$Src, [string]$Dst, [string[]]$Arguments)
+    param([string]$Src, [string]$Dst, [string[]]$Arguments, [string]$Prefix = '')
     $posix = { param($p) ($p -replace '\\', '/') }
-    $script = (Get-CmModelsFillScript).Replace('dst=/models; src=/src;', "dst='$(& $posix $Dst)'; src='$(& $posix $Src)';")
+    $script = (Get-CmModelsFillScript).Replace('dst=/models; src=/src;', "$Prefix dst='$(& $posix $Dst)'; src='$(& $posix $Src)';")
     Assert-True ($script -ne (Get-CmModelsFillScript)) 'the test could put its own folders into the script'
     $file = Join-Path (Split-Path -Parent $Dst) 'fill.sh'
     [IO.File]::WriteAllText($file, $script)
@@ -1744,7 +1744,7 @@ Test-Case 'shelf reader: while the copy is pending (image to pull, volume unread
                 Assert-Equal 0 (Get-FillRuns).Count 'nothing is copied while docker cannot say what the volume holds'
                 Assert-Equal 0 (Get-VolumeCreates).Count
                 Assert-Equal 0 (Get-ReaderDockerMutations).Count "no mutating call: $((Get-ReaderDockerMutations | ForEach-Object Display) -join '; ')"
-                Assert-Match "$($r.State.shelfReader.note)" 'the model volume could not be read'
+                Assert-Equal 'on' "$($r.State.shelfReader.note)" 'a reader that is on is still watched as usual (fix round 1)'
             }
         }
     }
@@ -1849,7 +1849,7 @@ Test-Case 'shelf reader: every call of the fill path has a timeout, and its pass
         foreach ($kind in 'volume inspect', 'volume create', 'docker run --rm', 'docker stop', 'docker pull', 'image inspect') { Assert-True (@($mine | Where-Object { $_.Display -match $kind }).Count -ge 1) "the fill path made a $kind call" }
         foreach ($c in $mine) { Assert-True ($c.TimeoutSeconds -gt 0) "no timeout on: $($c.Display)" }
         $worst = Get-CmShelfReaderWorstCaseSeconds -Ctx (New-CmContext -Root $root)
-        $fill = 30 + 60 + 30 + 30 + 60 + 600 + 60 + 60
+        $fill = 30 + 60 + 30 + 30 + 60 + 60 + 600 + 60 + 60
         Assert-True ($worst -ge $fill) "the budget ($worst s) covers the fill path ($fill s)"
         Assert-Equal 1020 $worst 'the start path is still the longest: 17 minutes, as the README says'
         Assert-True ($worst + $script:CmPruneSecondsPerPoll -lt $script:CmStaleLockMinutes * 60 - 300) 'well under the stale-lock alert'
@@ -2070,5 +2070,271 @@ Test-Case 'shelf reader: with docker inspect failing, the container id already c
                 Assert-Equal 0 (Get-ReaderLogReads).Count
             }
         }
+    }
+}
+
+# ---- fix round 1 (#811): a failed copy never stops a working reader, and the volume heals itself -------------------------------
+
+function Get-FillRemoves { @(Get-Calls 'docker' 'docker rm -f collectionmaxxing-models-fill') }
+
+Test-Case 'shelf reader: a failed copy, a timed-out copy or a failed volume create while the reader is on never stops it; the copy is tried again and the reader is then recreated' {
+    foreach ($case in @(
+            @{ What = 'copy'; Machine = @{ FillExit = 1; FillOutput = @('cm-fill: could not copy Qwen3VL-8B-Instruct-Q4_K_M.gguf into the model volume') }; Want = 'could not copy the model files' }
+            @{ What = 'timeout'; Machine = @{ FillExit = 124; FillOutput = @('timed out after 600 seconds') }; Want = 'did not finish within 10 minutes' }
+            @{ What = 'create'; Machine = @{ VolumeCreateFails = $true }; Want = 'could not create the model volume' }
+        )) {
+        $global:CmCalls.Clear()
+        Use-TestReaderRoot -State (Get-ReaderStateAfter803) {
+            param($root)
+            $machine = @{ Gpu = $true; Up = $script:Sha1; ReaderHealth = 'healthy'; ApiEndpoint = $script:ReaderUrl; ReaderImagePresent = $true
+                ReaderStartedAt = '2026-11-12T08:00:00.123456789Z'; ReaderLabelHash = 'cfg-803'; ComposeHash = 'cfg-804'; ReaderStartsAs = 'starting' }
+            foreach ($k in $case.Machine.Keys) { $machine[$k] = $case.Machine[$k] }
+            Start-TestReaderMachine $machine
+            Add-TestReaderFiles $root -NoVolume
+            $t0 = [DateTime]::UtcNow
+            $global:CmNow = $t0
+            Assert-Equal 'deployed' (Invoke-TestReaderPass $root).Result.Outcome $case.What
+            $global:CmNow = $t0.AddMinutes(2)
+            $failed = Invoke-TestReaderPass $root
+            Assert-Match $failed.Log "ERROR ALERT shelf-reader .*$([regex]::Escape($case.Want)).*the reader keeps running as it is" $case.What
+            Assert-Equal 1 (Get-ReaderAlerts).Count "one alert ($($case.What))"
+            Assert-Equal 0 (Get-ReaderStops).Count "the working reader is not stopped ($($case.What))"
+            Assert-Equal 0 (Get-ReaderUps).Count "nor recreated ($($case.What))"
+            Assert-True ([bool]$failed.State.shelfReader.on) "still on ($($case.What))"
+            Assert-Equal $script:Sha2 "$($failed.State.shelfReader.volumeFailedAt)" $case.What
+            # Meanwhile it is watched as usual: polls make no up, no stop, no copy, and it stays on.
+            foreach ($minutes in 4, 60, 300) { $global:CmNow = $t0.AddMinutes($minutes); $p = Invoke-TestReaderPass $root }
+            Assert-Equal 0 (Get-ReaderUps).Count "not recreated while the copy waits ($($case.What))"
+            Assert-Equal 0 (Get-ReaderStops).Count $case.What
+            Assert-True ([bool]$p.State.shelfReader.on) $case.What
+            Assert-Equal 'cfg-803' $global:CmMachine.ReaderLabelHash "it runs the old definition ($($case.What))"
+            Assert-Equal 1 @(Get-ReaderAlerts | Where-Object { $_.state -eq 'open' }).Count "the alert stays open, one issue ($($case.What))"
+            # Six hours later the copy works: filled, then recreated once, checked and on; the api is never restarted.
+            $global:CmMachine.FillExit = 0; $global:CmMachine.VolumeCreateFails = $false
+            $global:CmNow = $t0.AddHours(6).AddMinutes(5)
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-True ($global:CmMachine.Fills -ge 1) "copied after the wait ($($case.What))"
+            Assert-Equal 0 (Get-ReaderUps).Count "not in the copy's pass ($($case.What))"
+            Assert-Equal 0 @(Get-ReaderAlerts | Where-Object { $_.state -eq 'open' }).Count "the copy alert clears once the volume is filled ($($case.What))"
+            $global:CmNow = $t0.AddHours(6).AddMinutes(7)
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal 1 (Get-ReaderUps).Count "then recreated once ($($case.What))"
+            $global:CmMachine.ReaderHealth = 'healthy'
+            $global:CmNow = $t0.AddHours(6).AddMinutes(9)
+            $on = Invoke-TestReaderPass $root
+            Assert-Equal 1 (Get-ReaderLogReads).Count "the card check on the new start ($($case.What))"
+            Assert-True ([bool]$on.State.shelfReader.on) $case.What
+            Assert-Equal 0 (Get-ApiSwitches).Count "no api restart ($($case.What))"
+            Assert-Equal 0 (Get-ReaderStops).Count $case.What
+        }
+    }
+}
+
+Test-Case 'shelf reader: a reader that is on but whose container is gone is never started on a volume that is not verified, and the usual watch still fails it' {
+    Use-TestReaderRoot -State (Get-ReaderOnState) {
+        param($root)
+        # On in the state, but the container is gone: it must not be started on the empty volume while the copy waits.
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderHealth = 'missing'; ReaderImagePresent = $true; FillExit = 1; FillOutput = @('cm-fill: x') }
+        Add-TestReaderFiles $root -NoVolume
+        $t0 = [DateTime]::UtcNow
+        $global:CmNow = $t0
+        Invoke-TestReaderPass $root | Out-Null
+        foreach ($minutes in 2, 6, 9) { $global:CmNow = $t0.AddMinutes($minutes); Invoke-TestReaderPass $root | Out-Null }
+        Assert-Equal 0 (Get-ReaderUps).Count 'never started on a volume that is not verified'
+        $global:CmNow = $t0.AddMinutes(12)
+        $late = Invoke-TestReaderPass $root
+        Assert-Match $late.Log 'ERROR ALERT shelf-reader the reader has not been healthy for 10 minutes' 'the usual watch still runs'
+        Assert-False ([bool]$late.State.shelfReader.on)
+        Assert-Equal 0 (Get-ReaderUps).Count
+    }
+}
+
+Test-Case 'shelf reader: a volume that stays unreadable blocks only the copy, the start and the recreation; a reader that is on is still watched' {
+    foreach ($how in 'unhealthy', 'healthy', 'empty') {
+        $global:CmCalls.Clear()
+        Use-TestReaderRoot -State (Get-UpToDateState) {
+            param($root)
+            Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+            Add-TestReaderFiles $root
+            $t0 = [DateTime]::UtcNow
+            $global:CmNow = $t0
+            Invoke-TestReaderUntilOn $root | Out-Null
+            if ($how -eq 'empty') { $global:CmMachine.VolumeCreatedAt = ' ' } else { $global:CmMachine.VolumeInspectFails = $true }
+            $global:CmMachine.ComposeHash = 'cfg-hash-2'   # a changed definition must not be recreated either
+            if ($how -eq 'unhealthy') { $global:CmMachine.ReaderHealth = 'unhealthy' }
+            $global:CmCalls.Clear()
+            foreach ($minutes in 1, 5) { $global:CmNow = $t0.AddMinutes($minutes); $p = Invoke-TestReaderPass $root }
+            Assert-Equal 0 (Get-ReaderUps).Count "no recreation ($how)"
+            Assert-Equal 0 (Get-FillRuns).Count "no copy ($how)"
+            Assert-True ([bool]$p.State.shelfReader.on) "given time ($how)"
+            $global:CmNow = $t0.AddMinutes(12)
+            $late = Invoke-TestReaderPass $root
+            if ($how -eq 'unhealthy') {
+                Assert-Match $late.Log 'ERROR ALERT shelf-reader the reader has not been healthy for 10 minutes' 'watched as usual'
+                Assert-Equal 1 (Get-ReaderStops).Count
+                Assert-False ([bool]$late.State.shelfReader.on)
+                Assert-Equal 0 (Get-ApiSwitches).Count
+            }
+            else {
+                Assert-True ([bool]$late.State.shelfReader.on) "a healthy reader stays on ($how)"
+                Assert-Equal 0 (Get-ReaderDockerMutations).Count "no mutating call ($how): $((Get-ReaderDockerMutations | ForEach-Object Display) -join '; ')"
+                Assert-Equal 0 (Get-ReaderUps).Count $how
+            }
+        }
+    }
+}
+
+Test-Case 'shelf reader: a helper left over under the fixed name is removed before the copy, and does not fail it' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderImagePresent = $true; FillLeftover = $true }
+        Add-TestReaderFiles $root -NoVolume
+        $r = Invoke-TestReaderPass $root
+        Assert-Equal 1 (Get-FillRemoves).Count 'the deployer''s own helper, by its name'
+        Assert-True ((Get-CallIndex 'docker rm -f collectionmaxxing-models-fill') -lt (Get-CallIndex 'docker run --rm*llama.cpp*')) 'removed before the run'
+        Assert-True ((Get-FillRemoves)[0].TimeoutSeconds -gt 0) 'with a timeout'
+        Assert-Equal 1 $global:CmMachine.Fills 'the copy works'
+        Assert-False ($r.Log -match 'ALERT') 'no alert'
+        # With nothing left over, "no such container" is fine too.
+        $global:CmMachine.VolumeCreatedAt = '2026-11-13T00:00:00Z'; $global:CmMachine.VolumeFilled = $false
+        Invoke-TestReaderPass $root | Out-Null
+        Assert-Equal 2 $global:CmMachine.Fills
+    }
+}
+
+Test-Case 'shelf reader: the fill script removes every plain file in the volume that is not pinned, and leaves folders and links alone' {
+    Use-TestReaderPins
+    $base = Join-Path ([IO.Path]::GetTempPath()) ('cm-ops1-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    try {
+        $src = Join-Path $base 'src'; $dst = Join-Path $base 'models'
+        New-Item -ItemType Directory -Force -Path $src, $dst, (Join-Path $dst 'keep-folder') | Out-Null
+        foreach ($name in $script:ReaderModel, $script:ReaderProjector) { [IO.File]::WriteAllText((Join-Path $src $name), $script:ReaderContent[$name]) }
+        [IO.File]::WriteAllText((Join-Path $dst 'Qwen2-VL-7B-old.gguf'), 'an older model')
+        [IO.File]::WriteAllText((Join-Path $dst '.hidden-old'), 'old')
+        [IO.File]::WriteAllText((Join-Path $dst 'keep-folder/inside.txt'), 'not ours to touch')
+        $r = Invoke-TestFillScript -Src $src -Dst $dst -Arguments @(Get-TestFillArgs)
+        Assert-Equal 0 $r.ExitCode $r.Output
+        Assert-False (Test-Path -LiteralPath (Join-Path $dst 'Qwen2-VL-7B-old.gguf')) 'the old model is gone'
+        Assert-False (Test-Path -LiteralPath (Join-Path $dst '.hidden-old')) 'a hidden old file too'
+        Assert-True (Test-Path -LiteralPath (Join-Path $dst 'keep-folder/inside.txt')) 'no recursion into a folder'
+        foreach ($name in $script:ReaderModel, $script:ReaderProjector) { Assert-Equal $script:ReaderContent[$name] ([IO.File]::ReadAllText((Join-Path $dst $name))) $name }
+    }
+    finally { Remove-TestRoot $base }
+}
+
+Test-Case 'shelf reader: the fill script frees the old files before it checks the room' {
+    Use-TestReaderPins
+    $base = Join-Path ([IO.Path]::GetTempPath()) ('cm-ops1-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    try {
+        $src = Join-Path $base 'src'; $dst = Join-Path $base 'models'; $bin = Join-Path $base 'bin'
+        New-Item -ItemType Directory -Force -Path $src, $dst, $bin | Out-Null
+        foreach ($name in $script:ReaderModel, $script:ReaderProjector) { [IO.File]::WriteAllText((Join-Path $src $name), $script:ReaderContent[$name]) }
+        $old = Join-Path $dst $script:ReaderModel
+        [IO.File]::WriteAllText($old, 'the old copy of the same name, taking the room')
+        # A fake df: room for the copy only once the old file has been deleted.
+        $posixOld = $old -replace '\\', '/'
+        [IO.File]::WriteAllText((Join-Path $bin 'df'), "#!/bin/sh`nif [ -e '$posixOld' ]; then a=1; else a=999999999; fi`necho 'Filesystem 1024-blocks Used Available Capacity Mounted on'`necho `"fake 1 1 `$a 1% /models`"`n")
+        $msys = { param($p) $q = $p -replace '\\', '/'; if ($q -match '^([A-Za-z]):/(.*)$') { "/$($Matches[1].ToLowerInvariant())/$($Matches[2])" } else { $q } }
+        & (Find-TestBash) -c "chmod +x '$(& $msys (Join-Path $bin 'df'))'" | Out-Null
+        $prefix = "PATH='$(& $msys $bin)':`"`$PATH`";"
+        $r = Invoke-TestFillScript -Src $src -Dst $dst -Arguments @(Get-TestFillArgs) -Prefix $prefix
+        Assert-Equal 0 $r.ExitCode "the old file is deleted before df is asked: $($r.Output)"
+        Assert-Equal $script:ReaderContent[$script:ReaderModel] ([IO.File]::ReadAllText($old))
+        # And the fake df does refuse when the old file is still there, so the check above proves the order.
+        [IO.File]::WriteAllText((Join-Path $dst 'x'), 'x')
+        $r2 = @(& (Find-TestBash) -c "PATH='$(& $msys $bin)':`"`$PATH`"; touch '$posixOld'; df -Pk /models" 2>&1) -join ' '
+        Assert-Match $r2 'fake 1 1 1 1%' 'the fake df reports no room while the old file exists'
+    }
+    finally { Remove-TestRoot $base }
+}
+
+Test-Case 'shelf reader: the record is dropped before a copy, so a failed copy for new pins and a revert never start the reader on missing files' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderImagePresent = $true }
+        Add-TestReaderFiles $root    # pins A, recorded and in the volume
+        $pinsA = @($global:CmShelfReaderFiles | ForEach-Object { @{ Name = $_.Name; Size = $_.Size; Sha256 = $_.Sha256 } })
+        try {
+            # Pins B: a new model on the host; its copy empties the volume and fails.
+            $text = 'model B for the tests'
+            $script:ReaderContent[$script:ReaderModel] = $text
+            Add-TestReaderFile $root $script:ReaderModel | Out-Null
+            $global:CmShelfReaderFiles[0] = @{ Name = $script:ReaderModel; Size = [long]$text.Length; Sha256 = (Get-TestSha256 $text) }
+            $global:CmMachine.FillExit = 1; $global:CmMachine.FillOutput = @('cm-fill: x')
+            $t0 = [DateTime]::UtcNow
+            $global:CmNow = $t0
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal $false $global:CmMachine.VolumeFilled 'the failed copy left the volume without the files'
+            # A revert brings back pins A (a new commit, so no wait), with the host files back as they were.
+            $script:ReaderContent[$script:ReaderModel] = 'fake model weights for the tests'
+            Add-TestReaderFile $root $script:ReaderModel | Out-Null
+            $global:CmShelfReaderFiles = $pinsA
+            $global:CmMachine.FillExit = 0
+            $sha3 = 'c3' * 20
+            $global:CmMachine.Sha = $sha3; $global:CmMachine.Graph[$sha3] = @($script:Sha1, $script:Sha2)
+            $global:CmNow = $t0.AddMinutes(2)
+            Assert-Equal 'deployed' (Invoke-TestReaderPass $root).Result.Outcome
+            $global:CmCalls.Clear()
+            $global:CmNow = $t0.AddMinutes(4)
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal 0 (Get-ReaderUps).Count 'pins A''s old record must not count: the files are gone'
+            Assert-Equal 1 (Get-FillRuns).Count 'a copy runs'
+            $global:CmNow = $t0.AddMinutes(6)
+            Invoke-TestReaderPass $root | Out-Null
+            Assert-Equal 1 (Get-ReaderUps).Count 'then the start'
+            Assert-Equal 'healthy' $global:CmMachine.ReaderHealth 'on a filled volume'
+        }
+        finally { $script:ReaderContent[$script:ReaderModel] = 'fake model weights for the tests' }
+    }
+}
+
+Test-Case 'shelf reader: a new container gets its own start window and its own 10 unreadable minutes' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2 }
+        Add-TestReaderFiles $root
+        $t0 = [DateTime]::UtcNow
+        $global:CmNow = $t0
+        Invoke-TestReaderUntilOn $root | Out-Null
+        # Container A: a start the deployer has not checked, its log unreadable for 8 minutes.
+        $global:CmMachine.ReaderId = 'reader-A'; $global:CmMachine.ReaderStartedAt = $t0.ToString('o'); $global:CmMachine.ReaderLogFails = $true
+        foreach ($minutes in 12, 16, 20) { $global:CmNow = $t0.AddMinutes($minutes); $p = Invoke-TestReaderPass $root; Assert-True ([bool]$p.State.shelfReader.on) "A at $minutes" }
+        # Container B replaces it: a window of its own (from minute 19) and 10 minutes of its own (from minute 22).
+        $global:CmMachine.ReaderId = 'reader-B'; $global:CmMachine.ReaderStartedAt = $t0.AddMinutes(19).ToString('o')
+        foreach ($minutes in 22, 26, 30) { $global:CmNow = $t0.AddMinutes($minutes); $p = Invoke-TestReaderPass $root; Assert-True ([bool]$p.State.shelfReader.on) "B at ${minutes} minutes, A's unreadable minutes do not count for B" }
+        Assert-Equal 0 (Get-ReaderStops).Count
+        $global:CmNow = $t0.AddMinutes(32)
+        $late = Invoke-TestReaderPass $root
+        Assert-False ([bool]$late.State.shelfReader.on) 'B unreadable for 10 minutes and past its window: stopped'
+    }
+}
+
+Test-Case 'shelf reader: the lock budget grows with the copy''s timeout' {
+    $saved = $script:CmShelfReaderFillSeconds
+    try {
+        $script:CmShelfReaderFillSeconds = 1200
+        $ctx = New-CmContext -Root ([IO.Path]::GetTempPath())
+        $fill = 30 + 60 + 30 + 30 + 60 + 60 + 1200 + 60 + 60
+        $worst = Get-CmShelfReaderWorstCaseSeconds -Ctx $ctx
+        Assert-True ($worst -ge $fill) "the budget ($worst s) covers a 20-minute copy ($fill s)"
+    }
+    finally { $script:CmShelfReaderFillSeconds = $saved }
+}
+
+Test-Case 'shelf reader: a start after a failure no longer says it is off after a failure' {
+    Use-TestReaderRoot -State (Get-UpToDateState) {
+        param($root)
+        Start-TestReaderMachine @{ Gpu = $true; Up = $script:Sha2; ReaderUpFails = $true }
+        Add-TestReaderFiles $root
+        $t0 = [DateTime]::UtcNow
+        $global:CmNow = $t0
+        $failed = Invoke-TestReaderPass $root
+        Assert-Match "$($failed.State.shelfReader.note)" 'off after a failure'
+        $global:CmMachine.ReaderUpFails = $false; $global:CmMachine.ReaderStartsAs = 'starting'
+        $global:CmNow = $t0.AddHours(6).AddMinutes(5)
+        $started = Invoke-TestReaderPass $root
+        Assert-Equal 2 (Get-ReaderUps).Count
+        Assert-False ("$($started.State.shelfReader.note)" -match 'off after a failure') "note: $($started.State.shelfReader.note)"
+        Assert-Match "$($started.State.shelfReader.note)" 'starting'
     }
 }
