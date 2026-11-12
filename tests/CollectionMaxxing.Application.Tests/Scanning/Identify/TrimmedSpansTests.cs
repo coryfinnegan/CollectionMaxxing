@@ -94,4 +94,35 @@ public class TrimmedSpansTests
     {
         Texts("  SARAH   J.  CROWN   OF  MIDNIGHT ").ShouldBe(Texts("SARAH J. CROWN OF MIDNIGHT"));
     }
+
+    [Fact]
+    public void A_span_that_is_only_an_edition_phrase_is_never_tried()
+    {
+        // #815: "HIGHLANDER DIRECTOR'S CUT" without its first word is an edition, not a title.
+        Texts("HIGHLANDER DIRECTOR'S CUT").ShouldBe(["HIGHLANDER DIRECTOR'S", "DIRECTOR'S", "HIGHLANDER"]);
+    }
+
+    // #815: a span's find must carry the read's leading words (asked for a read that names its kind).
+    [Theory]
+    [InlineData("HIGHLANDER THE FINAL DIMENSION", 0, "The Final Destination", "", false)] // the franchise word dropped and not carried
+    [InlineData("HIGHLANDER THE FINAL DIMENSION", 1, "The Final", "", false)] // kept by the span, still not carried by the find
+    [InlineData("HIGHLANDER THE FINAL DIMENSION", 0, "Highlander III: The Final Dimension", "", true)]
+    [InlineData("HIGHLANDER THE FINAL DIMENSION", 1, "Highlander", "", true)]
+    [InlineData("SARAH J. CROWN OF MIDNIGHT", 3, "Crown of Midnight", "Sarah J. Maas", true)] // the author's name is carried by the creator
+    [InlineData("SARAH J. CROWN OF MIDNIGHT", 3, "Crown of Midnight", "Tess Harrowgate", false)]
+    [InlineData("THE COPPER LANTERN ROAD", 0, "Copper Lantern Road", "", true)] // a stop word asks nothing
+    [InlineData("7 COPPER LANTERN ROAD", 0, "Copper Lantern Road", "", true)] // nor does a sticker number
+    [InlineData("A J COPPER LANTERN", 0, "Copper Lantern", "", true)] // nor an initial
+    public void A_spans_find_carries_the_reads_leading_words_or_does_not(string read, int span, string title, string creator, bool carries)
+    {
+        var spans = TrimmedSpans.For(read);
+
+        TrimmedSpans.FindCarriesLeadingWords(read, spans[span], title, creator.Length > 0 ? [creator] : []).ShouldBe(carries);
+    }
+
+    [Fact]
+    public void Each_span_says_which_words_its_start_lost()
+    {
+        TrimmedSpans.For("SARAH J. CROWN OF MIDNIGHT").Select(span => span.DroppedStart).ShouldBe(["SARAH", "", "SARAH", "SARAH J."]);
+    }
 }

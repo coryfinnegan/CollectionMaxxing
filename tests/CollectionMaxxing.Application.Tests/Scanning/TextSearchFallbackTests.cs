@@ -373,4 +373,29 @@ public class TextSearchFallbackTests
             ("Camp III Wasteland Now", null), ("3 Wasteland Now", null), ("III Wasteland Now", null), ("Wasteland Now", null),
         ]);
     }
+
+    [Fact]
+    public async Task An_edition_phrase_left_by_dropping_words_is_never_searched_as_a_title()
+    {
+        // #815: a typed or read "Highlander Director's Cut" dropped its first word and searched "Director's Cut", which finds
+        // anything with an edition in its name. The other rungs stay.
+        var provider = new RecordingProvider(_ => [], kind: WorkKind.Film);
+
+        await Resolver(provider).AskProvidersAsync(
+            new CatalogQuery { Title = "Highlander Director's Cut", Kind = WorkKind.Film }, CancellationToken.None, CancellationToken.None);
+
+        provider.Queries.Select(q => q.Title).ShouldBe(["Highlander Director's Cut", "Highlander Director's"]);
+    }
+
+    [Fact]
+    public async Task A_read_that_is_only_an_edition_phrase_is_still_asked_as_read()
+    {
+        // A film may really be called that; only a rung the ladder makes is left out.
+        var provider = new RecordingProvider(_ => [], kind: WorkKind.Film);
+
+        await Resolver(provider).AskProvidersAsync(
+            new CatalogQuery { Title = "Director's Cut", Kind = WorkKind.Film }, CancellationToken.None, CancellationToken.None);
+
+        provider.Queries.Select(q => q.Title).ShouldBe(["Director's Cut"]);
+    }
 }
