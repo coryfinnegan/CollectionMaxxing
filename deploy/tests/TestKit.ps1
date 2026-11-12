@@ -115,6 +115,35 @@ function New-GoodComposeConfig {
     }
 }
 
+function Get-TestReaderGpuLog {
+    <# The start log of a reader that uses the card, verbatim from the PC (#802): at this log level no line says so. #>
+    @('warn: LLAMA_ARG_HOST environment variable is set, but will be overwritten by command line argument --host'
+        'warn: LLAMA_ARG_PORT environment variable is set, but will be overwritten by command line argument --port'
+        '0.00.222.462 I srv  llama_server: initializing ...'
+        '0.00.222.512 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)'
+        '0.00.222.722 I srv  init_listene: The UI is disabled'
+        '0.00.222.858 W srv  server_setup: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)'
+        "0.00.242.934 I srv    load_model: loading model '/models/Qwen3VL-8B-Instruct-Q4_K_M.gguf'"
+        '2.04.388.631 I cmn          init: llama threadpool init, n_threads = 16'
+        "2.10.549.999 I srv    load_model: loaded multimodal model, '/models/mmproj-Qwen3VL-8B-Instruct-F16.gguf'"
+        "2.10.803.278 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 12288, kv_unified = 'false'"
+        '2.10.812.293 I srv  server_run_i: model loaded'
+        '2.10.812.309 I srv  server_on_li: listening on http://0.0.0.0:8431')
+}
+
+function Get-TestReaderCpuLog {
+    <# The start log of a reader whose CUDA could not start inside Docker, so it runs on the processor, verbatim from the PC (#802). #>
+    @('warn: LLAMA_ARG_HOST environment variable is set, but will be overwritten by command line argument --host'
+        'warn: LLAMA_ARG_PORT environment variable is set, but will be overwritten by command line argument --port'
+        '0.00.235.033 E ggml_cuda_init: failed to initialize CUDA: named symbol not found'
+        'warning: no usable GPU found, --gpu-layers option will be ignored'
+        'warning: one possible reason is that llama.cpp was compiled without GPU support'
+        'warning: consult docs/build.md for compilation instructions'
+        '0.00.249.706 I srv  llama_server: initializing ...'
+        "0.00.268.125 I srv    load_model: loading model '/models/Qwen3VL-8B-Instruct-Q4_K_M.gguf'"
+        '3.39.208.595 I srv  server_run_i: model loaded'
+        '3.39.208.669 I srv  server_on_li: listening on http://0.0.0.0:8431')
+}
 function New-FakeMachine {
     <#
       Installs $global:CmRunner. Options (all optional):
@@ -176,6 +205,15 @@ function New-FakeMachine {
         ApiUnhealthyWithReader  the api answers 503 while it has the reader's endpoint
         ApiEndpoint             (read back) the endpoint the api was last started with; `docker inspect --format {{json .Config.Env}}` reports it
         ReaderThrows            make the reader's `compose ps` throw (an unexpected crash inside the reader step)
+        ReaderId, ReaderStartedAt  the running reader container's id and start time (`docker inspect`); each new start changes both
+        ReaderLabelHash         the running container's com.docker.compose.config-hash label (default cfg-hash-1)
+        ComposeHash             what `compose config --hash shelf-reader` prints for the file at the deployed commit (default cfg-hash-1)
+        ComposeHashFails        make `compose config --hash shelf-reader` fail
+        ReaderInspectFails      make the `docker inspect` of the reader container fail
+        ReaderLog               the current container's start log (`docker logs`; default: llama.cpp finding the card)
+        ReaderLogOnStart        the log every container that `up` starts gets (default: the card found)
+        ReaderLogFails          make `docker logs` of the reader fail
+        ReaderUpKeepsHash       `up` recreates the container but its label keeps the old hash (compose disagreeing with itself)
     #>
     param([hashtable]$Opt = @{})
     $m = @{
@@ -195,6 +233,9 @@ function New-FakeMachine {
     $m.BackupHealth = 'healthy'; $m.BackupContainerMissing = $false; $m.BackupPsFails = $false; $m.BackupInspectFails = $false
     $m.Gpu = $false; $m.ReaderHealth = 'missing'; $m.ReaderStartsAs = 'healthy'; $m.ReaderUpFails = $false; $m.ReaderPullFails = $false
     $m.ReaderImagePresent = $false; $m.ApiUnhealthyWithReader = $false; $m.ApiEndpoint = ''; $m.ReaderThrows = $false
+    $m.ReaderId = 'reader-c0'; $m.ReaderStartedAt = '2026-11-12T08:00:00.123456789Z'; $m.ReaderStarts = 0
+    $m.ReaderLabelHash = 'cfg-hash-1'; $m.ComposeHash = 'cfg-hash-1'; $m.ComposeHashFails = $false; $m.ReaderInspectFails = $false
+    $m.ReaderLog = @(Get-TestReaderGpuLog); $m.ReaderLogOnStart = @(Get-TestReaderGpuLog); $m.ReaderLogFails = $false; $m.ReaderUpKeepsHash = $false
     foreach ($k in $Opt.Keys) { $m[$k] = $Opt[$k] }
     if ($m.ImageRows -isnot [System.Collections.Generic.List[string]]) { $m.ImageRows = [System.Collections.Generic.List[string]]::new([string[]]@($m.ImageRows)) }
     $global:CmMachine = $m
@@ -227,9 +268,32 @@ function New-FakeMachine {
                     if ($m.ReaderHealth -eq 'missing') { return & $ok }
                     $state = if ($m.ReaderHealth -in 'healthy', 'starting', 'unhealthy') { 'running' } else { $m.ReaderHealth }
                     $health = if ($m.ReaderHealth -in 'healthy', 'starting', 'unhealthy') { $m.ReaderHealth } else { '' }
-                    return & $ok @(([pscustomobject]@{ Service = 'shelf-reader'; Name = 'collectionmaxxing-shelf-reader-1'; State = $state; Health = $health } | ConvertTo-Json -Compress))
+                    return & $ok @(([pscustomobject]@{ ID = $m.ReaderId; Service = 'shelf-reader'; Name = 'collectionmaxxing-shelf-reader-1'; State = $state; Health = $health } | ConvertTo-Json -Compress))
                 }
-                if ($line -match '^compose .* up -d --no-deps shelf-reader$') { if ($m.ReaderUpFails) { return [pscustomobject]@{ ExitCode = 1; Output = @('Error response from daemon: could not select device driver "nvidia" with capabilities: [[gpu]]') } } $m.ReaderHealth = $m.ReaderStartsAs; return & $ok }
+                if ($line -match '^compose .* up -d --no-deps shelf-reader$') {
+                    if ($m.ReaderUpFails) { return [pscustomobject]@{ ExitCode = 1; Output = @('Error response from daemon: could not select device driver "nvidia" with capabilities: [[gpu]]') } }
+                    # Like compose: a running container whose definition is unchanged is left as it is; otherwise a new start.
+                    if ($m.ReaderHealth -in 'missing', 'exited', 'stopped', 'restarting' -or $m.ReaderLabelHash -ne $m.ComposeHash) {
+                        $m.ReaderStarts++
+                        $m.ReaderId = "reader-c$($m.ReaderStarts)"
+                        $m.ReaderStartedAt = ([DateTime](Get-CmNow)).ToUniversalTime().AddSeconds($m.ReaderStarts).ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+                        if (-not $m.ReaderUpKeepsHash) { $m.ReaderLabelHash = $m.ComposeHash }
+                        $m.ReaderLog = @($m.ReaderLogOnStart)
+                        $m.ReaderHealth = $m.ReaderStartsAs
+                    }
+                    return & $ok
+                }
+                if ($line -match '^compose .* config --hash shelf-reader$') { if ($m.ComposeHashFails) { return & $fail } return & $ok @("shelf-reader $($m.ComposeHash)") }
+                if ($line -match '^inspect \S+ --format \{\{\.State\.StartedAt\}\}') { if ($m.ReaderInspectFails) { return & $fail } return & $ok @("$($m.ReaderStartedAt)|$($m.ReaderLabelHash)") }
+                if ($line -match '^logs ') {
+                    if ($m.ReaderLogFails) { return & $fail }
+                    # Like docker: only the lines written between --since and --until. The log starts in the container's first
+                    # second (the PC prints the CUDA marker 0.235 s in), so a --since past that second loses it.
+                    $startSec = [DateTimeOffset]::new((ConvertTo-CmUtc $m.ReaderStartedAt)).ToUnixTimeSeconds()
+                    if ($line -match '--since (\d+)' -and [long]$Matches[1] -gt $startSec) { return & $ok }
+                    if ($line -match '--until (\d+)' -and [long]$Matches[1] -lt $startSec + 1) { return & $ok }
+                    return & $ok @($m.ReaderLog)
+                }
                 if ($line -match '^compose .* stop shelf-reader$') { if ($m.ReaderHealth -ne 'missing') { $m.ReaderHealth = 'exited' } return & $ok }
                 if ($line -match '^pull') { if ($m.PullThrows) { throw 'docker exploded' }; if ($line -match ':main(\s|$)') { $m.MainPulls++ }; if ($m.PullFails) { return & $fail } return & $ok }
                 if ($line -match '^image inspect (\S+)') {
