@@ -205,7 +205,8 @@ public sealed class TextSearchResolver(
     /// with its numbers written the other way, 3 as III and III as 3 (the catalogue may spell a sequel the other way than the
     /// cover); then, when the read has at least three words, without its first word, and its first two, while two words are left,
     /// each also with the numbers swapped (a misread or unrelated first word, "SLEEP AWAY" for "Sleepaway" or a sticker number,
-    /// sinks a search the rest of the title would find).
+    /// sinks a search the rest of the title would find). A rung whose words are only an edition phrase ("Director's Cut",
+    /// <see cref="Identify.EditionPhrases"/>) is not asked: it names an edition, not a title.
     /// </summary>
     private static IEnumerable<CatalogQuery> Ladder(CatalogQuery asRead)
     {
@@ -235,7 +236,8 @@ public sealed class TextSearchResolver(
 
         foreach (var rung in rungs.Select(rung => titleOnly with { Title = string.Join(' ', rung) }))
         {
-            if (asked.Add(Key(rung)))
+            // Words dropped down to an edition phrase ("Director's Cut") leave no title to search for (#815).
+            if (!Identify.EditionPhrases.IsOnlyAPhrase(rung.Title) && asked.Add(Key(rung)))
             {
                 yield return rung;
             }
