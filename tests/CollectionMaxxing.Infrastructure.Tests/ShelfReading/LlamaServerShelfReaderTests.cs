@@ -27,11 +27,33 @@ public sealed class LlamaServerShelfReaderTests : IDisposable
 
     public void Dispose() => _server.Dispose();
 
-    private LlamaServerShelfReader Reader(Action<ShelfReaderOptions>? tweak = null, string? endpoint = null)
+    private LlamaServerShelfReader Reader(Action<ShelfReaderOptions>? tweak = null, string? endpoint = null, TimeSpan? floor = null)
     {
         var options = new ShelfReaderOptions { Endpoint = endpoint ?? _server.Url!, Model = "test-model", TimeoutSeconds = 30 };
         tweak?.Invoke(options);
-        return new LlamaServerShelfReader(new HttpClient { Timeout = Timeout.InfiniteTimeSpan }, Options.Create(options), _log);
+        return new LlamaServerShelfReader(new HttpClient { Timeout = Timeout.InfiniteTimeSpan }, Options.Create(options), _log)
+        {
+            SecondLookFloor = floor ?? TimeSpan.FromSeconds(LlamaServerShelfReader.DefaultSecondLookFloorSeconds),
+        };
+    }
+
+    [Fact]
+    public void The_second_look_floor_defaults_to_ten_seconds()
+    {
+        new LlamaServerShelfReader(new HttpClient(), Options.Create(new ShelfReaderOptions()), _log).SecondLookFloor.ShouldBe(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task A_second_turn_that_repeats_one_new_title_over_and_over_adds_nothing()
+    {
+        Reply(FirstAnswer);
+        ReplySecond(Items(Enumerable.Repeat(("Hamlet", "", "book"), 30).ToArray()));
+
+        var result = await Reader().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        result.Items.Select(i => i.Title).ShouldBe(["Dune", "Emma"]);
+        SecondRequests.ShouldBe(1);
     }
 
     private void Reply(string content, string finish = "stop", int status = 200)
@@ -175,6 +197,7 @@ public sealed class LlamaServerShelfReaderTests : IDisposable
     [Theory]
     [InlineData("""{"choices":[]}""")]
     [InlineData("""{}""")]
+    [InlineData("""{"choices":[{"message":{"content":null},"finish_reason":"stop"}]}""")]
     public async Task A_second_look_with_no_usable_choice_leaves_the_first_answer_standing(string body)
     {
         Reply(FirstAnswer);
@@ -191,9 +214,9 @@ public sealed class LlamaServerShelfReaderTests : IDisposable
     public async Task A_second_look_that_runs_out_of_the_time_budget_leaves_the_first_answer_standing()
     {
         Reply(FirstAnswer);
-        ReplySecond(Items(("Hamlet", "", "book")), delay: TimeSpan.FromSeconds(15));
+        ReplySecond(Items(("Hamlet", "", "book")), delay: TimeSpan.FromSeconds(5));
 
-        var result = await Reader(o => o.TimeoutSeconds = 11).ReadAsync(Jpeg, default);
+        var result = await Reader(o => o.TimeoutSeconds = 1, floor: TimeSpan.Zero).ReadAsync(Jpeg, default);
 
         result.Status.ShouldBe(ShelfReadStatus.Ok);
         result.Items.Select(i => i.Title).ShouldBe(["Dune", "Emma"]);
@@ -205,10 +228,9 @@ public sealed class LlamaServerShelfReaderTests : IDisposable
         _server.Given(Request.Create().WithPath(Path).UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
                 .WithBody(JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content = FirstAnswer }, finish_reason = "stop" } } }))
-                .WithDelay(TimeSpan.FromSeconds(4)));
+                .WithDelay(TimeSpan.FromMilliseconds(1500)));
 
-        var result = await Reader(o => o.TimeoutSeconds = 12).ReadAsync(Jpeg, default);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        var result = await Reader(o => o.TimeoutSeconds = 3, floor: TimeSpan.FromSeconds(2)).ReadAsync(Jpeg, default);
 
         result.Status.ShouldBe(ShelfReadStatus.Ok);
         _server.LogEntries.Count.ShouldBe(1);

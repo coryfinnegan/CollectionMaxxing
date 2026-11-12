@@ -43,8 +43,10 @@ public sealed partial class LlamaServerShelfReader(HttpClient http, IOptions<She
         "Look at the photo again, shelf by shelf, including lower shelves and stacks. List only the items you have not listed yet, in the same format. "
         + "If you have listed every item you can read, answer with an empty list.";
 
-    /// <summary>A second turn is skipped when fewer seconds than this are left inside <c>TimeoutSeconds</c>.</summary>
-    internal const int SecondLookFloorSeconds = 10;
+    /// <summary>A second turn is skipped when less time than this is left inside <c>TimeoutSeconds</c>. A test seam, not configuration (the Infrastructure project exposes no internals to its tests).</summary>
+    public TimeSpan SecondLookFloor { get; init; } = TimeSpan.FromSeconds(DefaultSecondLookFloorSeconds);
+
+    public const int DefaultSecondLookFloorSeconds = 10;
 
     public async Task<ShelfReadResult> ReadAsync(byte[] jpeg, CancellationToken cancellationToken)
     {
@@ -78,8 +80,8 @@ public sealed partial class LlamaServerShelfReader(HttpClient http, IOptions<She
             var firstMessage = FirstMessage(jpeg, settings);
             var first = await SendAsync(settings, [firstMessage], settings.MaxTokens, timeout.Token);
             var result = first.Result;
-            if (settings.SecondLook && first.Content is not null && result.Status == ShelfReadStatus.Ok && result.Items.Count > 0 && !first.RepeatRuleTripped
-                && settings.TimeoutSeconds - clock.Elapsed.TotalSeconds >= SecondLookFloorSeconds)
+            if (settings.SecondLook && first.Content is not null && result.Status == ShelfReadStatus.Ok && result.Items.Count > 0 && !first.Degenerate
+                && TimeSpan.FromSeconds(settings.TimeoutSeconds) - clock.Elapsed >= SecondLookFloor)
             {
                 result = await SecondLookAsync(settings, firstMessage, first.Content, result, clock, cancellationToken, timeout.Token);
             }
@@ -129,8 +131,8 @@ public sealed partial class LlamaServerShelfReader(HttpClient http, IOptions<She
         response_format = new { type = "json_schema", json_schema = new { name = "shelf_items", strict = true, schema = ItemsSchema } },
     };
 
-    /// <summary>One turn: what it read, the model's words exactly (null when none), whether the repeat rule cut it, and the HTTP status.</summary>
-    private sealed record Turn(ShelfReadResult Result, string? Content, bool RepeatRuleTripped, int HttpStatus);
+    /// <summary>One turn: what it read, the model's words exactly (null when none), whether it was not a clean answer (cut short, or the repeat rule dropped or cut items: no second look after it, and a second turn like it is not accepted), and the HTTP status.</summary>
+    private sealed record Turn(ShelfReadResult Result, string? Content, bool Degenerate, int HttpStatus);
 
     /// <summary>One chat completion. A server error comes back as an Unavailable result; cancellation and timeouts throw.</summary>
     private async Task<Turn> SendAsync(ShelfReaderOptions settings, object[] messages, int maxTokens, CancellationToken token)
@@ -147,8 +149,8 @@ public sealed partial class LlamaServerShelfReader(HttpClient http, IOptions<She
         }
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
-        var (result, content, tripped) = Interpret(doc.RootElement, settings.MaxRepeats);
-        return new Turn(result, content, tripped, status);
+        var (result, content, degenerate) = Interpret(doc.RootElement, settings.MaxRepeats);
+        return new Turn(result, content, degenerate, status);
     }
 
     /// <summary>
@@ -170,7 +172,7 @@ public sealed partial class LlamaServerShelfReader(HttpClient http, IOptions<She
         {
             var second = await SendAsync(settings, messages, settings.SecondLookMaxTokens, budget);
             outcome = second.Result.Status;
-            if (second.Result.Status == ShelfReadStatus.Ok)
+            if (second.Result.Status == ShelfReadStatus.Ok && !second.Degenerate)
             {
                 var seen = first.Items.Select(i => i.Title.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var extra = second.Result.Items.Where(i => !seen.Contains(i.Title.Trim())).ToList();
@@ -198,7 +200,7 @@ public sealed partial class LlamaServerShelfReader(HttpClient http, IOptions<She
     [LoggerMessage(Level = LogLevel.Information, Message = "Shelf second look ended {Status} and added {Count} items in {Milliseconds} ms.")]
     private partial void LogSecondLook(ShelfReadStatus status, int count, int milliseconds);
 
-    private static (ShelfReadResult Result, string? Content, bool RepeatRuleTripped) Interpret(JsonElement reply, int maxRepeats)
+    private static (ShelfReadResult Result, string? Content, bool Degenerate) Interpret(JsonElement reply, int maxRepeats)
     {
         var none = (ShelfReadResult.Empty(ShelfReadStatus.Unavailable), (string?)null, false);
         var choices = reply.GetProperty("choices");

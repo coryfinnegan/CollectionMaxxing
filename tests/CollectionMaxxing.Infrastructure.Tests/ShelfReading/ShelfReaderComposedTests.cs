@@ -75,6 +75,22 @@ public sealed class ShelfReaderComposedTests : IDisposable
     }
 
     [Fact]
+    public async Task With_the_second_look_on_and_the_app_wide_resilience_defaults_a_failed_second_turn_is_not_retried_and_the_first_answer_stands()
+    {
+        Reply("""{"items":[{"title":"Dune","creator":"","kind":"book"}]}""");
+        _server.Given(Request.Create().WithPath(Path).UsingPost().WithBody(new WireMock.Matchers.WildcardMatcher("*Look at the photo again*")))
+            .AtPriority(-1)
+            .RespondWith(Response.Create().WithStatusCode(500).WithBody("oops"));
+        await using var provider = Build(new Dictionary<string, string?> { ["ShelfReader:SecondLook"] = "true" });
+
+        var result = await provider.GetRequiredService<IShelfReader>().ReadAsync(Jpeg, default);
+
+        result.Status.ShouldBe(ShelfReadStatus.Ok);
+        result.Items.Select(i => i.Title).ShouldBe(["Dune"]);
+        _server.LogEntries.Count.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task With_the_app_wide_resilience_defaults_a_reply_slower_than_their_attempt_timeout_still_comes_back_ok_once()
     {
         Reply("""{"items":[{"title":"Dune","creator":"","kind":"book"}]}""", delay: TimeSpan.FromSeconds(2));
