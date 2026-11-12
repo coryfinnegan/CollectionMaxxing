@@ -191,6 +191,14 @@ public static class MatchScorer
                     }
                 }
 
+                // A book read as "Series: Title" is the book titled with what follows the colon: it ranks above the release titled
+                // with the series alone, which the main-title credit gives a hair less (#815). Books only: a film's catalogue title
+                // carries its franchise, and the part after its colon alone is some other film.
+                if (release.Kind == WorkKind.Book)
+                {
+                    similarity = Math.Max(similarity, TitleNormalizer.SeriesSubtitleCredit * titles.Read.SubtitleSimilarity(releaseTitle));
+                }
+
                 if (read.CreatorLine is { Length: > 0 } line)
                 {
                     var lineWords = TitleWordSet.Of(line);
@@ -293,7 +301,7 @@ public static class MatchScorer
     }
 
     /// <summary>
-    /// Scores every candidate, orders them best first (ties keep their input order) and decides the outcome from the best
+    /// Scores every candidate, orders them best first (of a tie, the higher title term first, then the input order) and decides the outcome from the best
     /// score and its lead over the second. No candidates is NotFound. A best score that rests on fewer than two compared
     /// signals (and is not an exact barcode match), on a known conflict, on a near title with only the kind compared
     /// besides it, or on a read title with fewer than three letters, is at most Ambiguous.
@@ -306,9 +314,12 @@ public static class MatchScorer
 
         var titles = new TitleCache(read.Title);
         var answerable = AnswerableIn(read, releases, titles);
+        // Of releases tied on score, the one whose title is closer to the read's own words goes first (#815: the show "Kimba the White
+        // Lion" level with the film "Kimba the White Lion: Symphonic Poem" for "Kimba the Lion"); a tie on that too keeps the input order.
         var ranked = releases
             .Select(release => ScoreCore(read, release, profile, answerable, titles))
             .OrderByDescending(scored => scored.Score)
+            .ThenByDescending(TitleValue)
             .ToList();
 
         if (ranked.Count == 0)
@@ -330,6 +341,10 @@ public static class MatchScorer
 
         return new MatchResult(outcome, ranked);
     }
+
+    /// <summary>The title term of a scored release, rounded as scores are; 0 when it has none.</summary>
+    private static double TitleValue(ScoredRelease scored) =>
+        scored.Terms.FirstOrDefault(t => t.Name == TitleTerm) is { } title ? Math.Round(title.Value, Decimals) : 0.0;
 
     /// <summary>
     /// The score rests on a title that is close but not the same, with nothing compared besides it and the kind (no author,

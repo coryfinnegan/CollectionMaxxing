@@ -55,6 +55,7 @@ public sealed class ComparableTitle
         }
 
         MainTitle = withMainTitle ? FindMainTitle(named) : null;
+        Subtitle = withMainTitle ? FindSubtitle(named) : null;
     }
 
     /// <summary>The comparison key: what <see cref="TitleNormalizer.Normalize"/> gives for the title.</summary>
@@ -76,6 +77,17 @@ public sealed class ComparableTitle
 
     /// <summary>The part before a subtitle (a colon, a spaced dash or a bracket), or null when the title has none or nothing would be left of it.</summary>
     private ComparableTitle? MainTitle { get; }
+
+    /// <summary>The part after the first colon, or null when the title has none, or nothing (or nothing before it) would be left.</summary>
+    private ComparableTitle? Subtitle { get; }
+
+    /// <summary>
+    /// How alike the part of this title after its colon is to the whole other title, compared as titles are (<see cref="TitleSimilarity"/>
+    /// without the main-title and contained-title credits), or 0 when this title has no colon. "Crescent City: House of Earth and Blood"
+    /// against "House of Earth and Blood" is 1. Not scaled: the caller decides what it is worth (<see cref="TitleNormalizer.SeriesSubtitleCredit"/>).
+    /// </summary>
+    public double SubtitleSimilarity(ComparableTitle other) =>
+        Subtitle is { } subtitle ? WholeSimilarity(subtitle, other, TitleNormalizer.ReorderedWordsCredit) : 0.0;
 
     /// <inheritdoc cref="TitleNormalizer.Similarity"/>
     public double Similarity(ComparableTitle other) => Alike(other, wordOrderCredit: 1.0, withContainment: false);
@@ -243,6 +255,18 @@ public sealed class ComparableTitle
 
         var main = new ComparableTitle(title[..cut], withMainTitle: false);
         return main.Key.Length == 0 ? null : main;
+    }
+
+    private static ComparableTitle? FindSubtitle(string? title)
+    {
+        var at = title?.IndexOf(':', StringComparison.Ordinal) ?? -1;
+        if (at <= 0 || TitleNormalizer.Normalize(title![..at]).Length == 0)
+        {
+            return null;
+        }
+
+        var subtitle = new ComparableTitle(title[(at + 1)..], withMainTitle: false);
+        return subtitle.Key.Length == 0 ? null : subtitle;
     }
 
     private static double WholeSimilarity(ComparableTitle a, ComparableTitle b, double wordOrderCredit)
