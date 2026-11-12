@@ -1,4 +1,5 @@
 using CollectionMaxxing.Application.Scanning.Identify;
+using CollectionMaxxing.Application.Scanning.ShelfReading;
 using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
@@ -276,7 +277,7 @@ public static class EvalCombination
 
     /// <summary>The shelf's own print: every word of every line Vision read on the shot; null when it sent no lines, so there is none to check against.</summary>
     private static IReadOnlySet<string>? PrintedOf(GroundedPhoto vision) =>
-        vision.OcrLines is { Count: > 0 } lines ? PrintSupport.PrintedWords(lines.Select(line => line.Text)) : null;
+        PcShelfUpgrade.PrintOf(vision.OcrLines?.Select(line => line.Text));
 
     /// <summary>
     /// The model's reads that stand beside Vision's: the ones the app would send. A read that is the same release as a Vision read
@@ -284,9 +285,15 @@ public static class EvalCombination
     /// (<see cref="PrintSupport.Supports"/>), as the app adds it only then. With no <paramref name="printed"/>, every other read stands.
     /// </summary>
     private static List<GroundedItem> StandingModelReads(List<GroundedItem> vision, IReadOnlyList<GroundedItem> model, IReadOnlySet<string>? printed) => model
-        .Where(read => !vision.Any(visionItem => SameReleaseWithNoPlace(read, visionItem)))
-        .Where(read => printed is null || vision.Any(visionItem => SameItem(read, visionItem)) || PrintSupport.Supports(read.ReadTitle, printed))
+        .Where(read => read.Box is null
+            ? PcShelfUpgrade.Stands(KeyOf(read), read.ReadTitle, vision.Select(KeyOf), printed) // a read with no place, as every server read is: the rule the endpoint shares
+            : StandsAtItsPlace(read, vision, printed))
         .ToList();
+
+    /// <summary>A model read with a place of its own: not a repeat of a Vision read that has none, and backed by the print unless it is at a Vision item's place.</summary>
+    private static bool StandsAtItsPlace(GroundedItem read, List<GroundedItem> vision, IReadOnlySet<string>? printed) =>
+        !vision.Any(visionItem => SameReleaseWithNoPlace(read, visionItem))
+        && (printed is null || vision.Any(visionItem => SameItem(read, visionItem)) || PrintSupport.Supports(read.ReadTitle, printed));
 
     /// <summary>
     /// The kinds the model reads that stand beside Vision's name (<see cref="StandingModelReads"/>): the only model reads the app
@@ -476,6 +483,6 @@ public static class EvalCombination
         return best;
     }
 
-    private static (string Title, int? Year)? KeyOf(GroundedItem item) =>
-        item.Best is { } best && TitleNormalizer.Normalize(best.Title) is { Length: > 0 } title ? (title, best.Year) : null;
+    private static PcShelfUpgrade.ReleaseKey? KeyOf(GroundedItem item) =>
+        item.Best is { } best ? PcShelfUpgrade.ReleaseKey.Of(best.Title, best.Year) : null;
 }
