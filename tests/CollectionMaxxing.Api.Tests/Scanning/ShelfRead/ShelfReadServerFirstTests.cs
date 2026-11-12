@@ -1,8 +1,8 @@
 using System.Net;
 using System.Text.Json;
 using CollectionMaxxing.Api.Tests.Support;
-using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Domain.Catalog;
+using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Domain.Scanning;
 using CollectionMaxxing.TestSupport;
 using Microsoft.EntityFrameworkCore;
