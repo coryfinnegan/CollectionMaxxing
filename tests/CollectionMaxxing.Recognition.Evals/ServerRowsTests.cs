@@ -40,18 +40,18 @@ public sealed class ServerRowsTests : IDisposable
     private static GroundedItem VisionGuess(string title) => Kept(Matched(title, resolvedBy: "vision_text"));
 
     [Fact]
-    public void Server_vision_is_the_existing_combination_of_the_server_row_and_the_Vision_row()
+    public void Server_vision_is_the_server_first_combination_of_the_server_row_and_the_Vision_row()
     {
         var truths = ArrangeShelf("Quiet Harbor", "Lantern Row", "Paper Moon");
         var vision = PhoneVision(VisionGuess("Lantern Row"));
         var phone = PhoneModel(T1(Matched("Quiet Harbor")));
-        var server = ServerRead(T1(Matched("Paper Moon")), T1(Matched("Quiet Harbor")));
+        var server = ServerRead(T1(Matched("Paper Moon")), T1(Matched("Zebra Opus")));
 
         var scored = EvalScorer.Score([phone, vision, server], truths);
 
-        var asIfThePhoneHadReadIt = EvalScorer.Score([server with { Engine = Apple }, vision], truths);
-        Json(scored.Engines[ServerVision]).ShouldBe(Json(asIfThePhoneHadReadIt.Engines[EvalCombination.Engine]), "the same rule, not tuned");
-        scored.ShelfOf(ServerModel).Top1Hits.ShouldBe(2);
+        scored.ShelfOf(ServerModel).Top1Hits.ShouldBe(1);
+        scored.ShelfOf(ServerVision).Top1Hits.ShouldBe(2, "the server's items and the Vision item beside them; the phone model's own read is left out (#814)");
+        scored.ShelfOf(ServerVision).PredictedItems.ShouldBe(3);
     }
 
     [Fact]

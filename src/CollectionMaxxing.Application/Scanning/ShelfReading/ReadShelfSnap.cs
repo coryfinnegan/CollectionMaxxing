@@ -7,6 +7,7 @@ using CollectionMaxxing.Application.Jobs;
 using CollectionMaxxing.Application.Scanning.Identify;
 using CollectionMaxxing.Application.Scanning.Photo;
 using CollectionMaxxing.Application.ShelfReading;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Catalog.Matching;
 using CollectionMaxxing.Domain.Common;
 using CollectionMaxxing.Domain.Scanning;
@@ -15,19 +16,21 @@ using Microsoft.Extensions.Logging;
 
 namespace CollectionMaxxing.Application.Scanning.ShelfReading;
 
-/// <summary>What a shelf read answers: the rows it added, and how many items the reader read (for the log; never their words).</summary>
+/// <summary>What a shelf read answers: the rows it added, then the phone's rows it skipped, and how many items the reader read (for the log; never their words).</summary>
 public sealed record ShelfReadAnswer(CandidatesDto Candidates, int ItemsRead);
 
 /// <summary>
 /// Use case: the phone has had <c>identify</c> answer a shelf snap, and now sends the same picture for the server's own reader (ADR-033).
 /// The picture is read once, in memory: it is never stored and nothing of it outlives the request. What the reader finds is grounded
-/// as <c>identify</c> grounds a read, and <see cref="PcShelfUpgrade"/> decides which finds are added beside the rows the snap already
-/// has. Added rows are unconfirmed (<see cref="CandidateSource.PictureServerModel"/>): a person ticks them in Review, nothing adds
-/// them to the library by itself, and no existing row is ever changed. A snap is read once; sending it again answers the same rows.
+/// as <c>identify</c> grounds a read, and <see cref="PcShelfUpgrade"/> settles the snap, server first (#814): the server's finds are
+/// added (<see cref="CandidateSource.PictureServerModel"/>, unconfirmed: a person ticks them in Review, nothing adds them by itself),
+/// except one whose release a row of the snap already has, which stays the row for it; the phone's rows the rule leaves out become
+/// server skips (<see cref="SkipReason.ServerDidNotSee"/>, with Put back), never a row the person acted on. A snap is read once;
+/// sending it again changes nothing more and answers the same rows.
 /// </summary>
 public static class ReadShelfSnap
 {
-    public sealed record Command(Guid SessionId, Guid SnapId, byte[] Jpeg, IReadOnlyList<string>? Lines);
+    public sealed record Command(Guid SessionId, Guid SnapId, byte[] Jpeg);
 
     public sealed class Handler(
         IAppDbContext db,
@@ -46,12 +49,6 @@ public static class ReadShelfSnap
         ShelfReadGate gate,
         ILogger<Handler> logger)
     {
-        /// <summary>The most lines of the shelf's print that are used.</summary>
-        public const int MaxLines = 1000;
-
-        /// <summary>The longest a line of print may be; the rest is dropped.</summary>
-        public const int MaxLineLength = 500;
-
         /// <summary>The most items one reading may add; a reader that lists more is cut off here (the same cap <c>identify</c> has).</summary>
         private const int MaxItems = IdentifyCleaning.MaxItems;
 
@@ -128,25 +125,30 @@ public static class ReadShelfSnap
                 return ShelfReadErrors.ReaderOff;
             }
 
-            if (read.Status is ShelfReadStatus.TimedOut or ShelfReadStatus.Unavailable)
+            if (!PcShelfUpgrade.IsUsable(read.Status))
             {
                 return ShelfReadErrors.ReaderUnavailable; // nothing was changed; the snap can be sent again
             }
 
-            return await KeepAsync(session, snap, read.Items, command.Lines, userId, cancellationToken);
+            return await KeepAsync(session, snap, read.Items, userId, cancellationToken);
         }
 
-        /// <summary>Grounds what the reader found, lets <see cref="PcShelfUpgrade"/> pick what stands beside the snap's rows, and keeps those as unconfirmed rows.</summary>
+        /// <summary>
+        /// Grounds what the reader found and lets <see cref="PcShelfUpgrade"/> settle the snap: the server's finds stand (unconfirmed, for
+        /// review) except one whose release a row of the snap already has, which stays the row for it; the phone's rows the rule leaves out
+        /// become server skips (<see cref="SkipReason.ServerDidNotSee"/>) unless the person acted on them.
+        /// </summary>
         private async Task<Result<ShelfReadAnswer>> KeepAsync(
-            ScanSession session, ScanSnap snap, IReadOnlyList<ShelfReadItem> found, IReadOnlyList<string>? lines, Guid userId, CancellationToken cancellationToken)
+            ScanSession session, ScanSnap snap, IReadOnlyList<ShelfReadItem> found, Guid userId, CancellationToken cancellationToken)
         {
             var reads = found.Where(item => !string.IsNullOrWhiteSpace(item.Title)).Take(MaxItems).Select(ServerReadInput.ReadOf).ToList();
             var items = IdentifyCleaning.Clean(reads, IdentifyKind.Shelf, serials);
             var answers = await GroundAsync(items, cancellationToken);
 
-            // An unfound spine has nothing to review (UnfoundSpines), as in the eval row.
+            // An unfound spine has nothing to review (UnfoundSpines), as in the eval row: it is a skipped read, which the rule never sees.
             var unfound = UnfoundSpines.Of([.. items.Select((item, i) => new UnfoundRead(item.Profile, answers[i].Verdict))]).ToHashSet();
-            var made = new List<(ScanCandidate Candidate, string? Title, PcShelfUpgrade.ReleaseKey? Key)>();
+            var made = new List<ScanCandidate>();
+            var madeFacts = new List<ReadFacts>();
             for (var i = 0; i < items.Count; i++)
             {
                 if (unfound.Contains(i))
@@ -166,18 +168,19 @@ public static class ReadShelfSnap
                     SnapId = snap.Id,
                     Resolution = CandidateResolution.Pending,
                     Decision = CandidateDecision.Undecided,
-                    InferredJson = StoredRead.Serialize(item.Facts, item.Profile, unconfirmed: true), // only the server's model saw it
+                    InferredJson = StoredRead.Serialize(item.Facts, item.Profile, unconfirmed: true), // a row of its own is never confirmed: see Settle
                     IdempotencyKey = $"snap:{snap.Id:N}:server:{i}",
                     CreatedAt = clock.GetUtcNow(),
                 };
 
                 // Written onto the row as identify writes an answer, so the best release is what the row will show.
                 await resolver.ApplyAsync(session.LibraryId, candidate, answers[i], cancellationToken);
-                made.Add((candidate, item.Facts.Title, BestReleaseOf(candidate.AlternativesJson)));
+                made.Add(candidate);
+                madeFacts.Add(item.Facts);
             }
 
-            var printed = PcShelfUpgrade.PrintOf(lines?.Take(MaxLines).Select(line => line.Length > MaxLineLength ? line[..MaxLineLength] : line));
             var added = new List<ScanCandidate>();
+            var skipped = new List<ScanCandidate>();
             await using (await sessionLock.AcquireAsync(session.Id, cancellationToken))
             {
                 await db.ScanSessions.Entry(session).ReloadAsync(cancellationToken);
@@ -197,25 +200,29 @@ public static class ReadShelfSnap
                     return await RowsOfAsync(session, snap, cancellationToken);
                 }
 
-                // The rows the snap has now, the phone's reads included (skipped ones too: a skipped row still names its release).
-                var existing = (await db.ScanCandidates.AsNoTracking()
-                        .Where(c => c.SessionId == session.Id && c.SnapId == snap.Id && c.Source != CandidateSource.PictureServerModel)
-                        .Select(c => c.AlternativesJson)
-                        .ToListAsync(cancellationToken))
-                    .Select(BestReleaseOf)
-                    .ToList();
+                // The rows the phone's identify made for this snap, read fresh under the lock: what the person did with them is what counts.
+                var phoneRows = await db.ScanCandidates
+                    .Where(c => c.SessionId == session.Id && c.SnapId == snap.Id
+                        && (c.Source == CandidateSource.PictureText || c.Source == CandidateSource.PictureAppleModel))
+                    .OrderBy(c => c.Seq)
+                    .ToListAsync(cancellationToken);
+                var phoneIds = phoneRows.Select(c => c.Id).ToList();
+                var picked = (await db.MatchFeedback.AsNoTracking().Where(f => phoneIds.Contains(f.CandidateId)).Select(f => f.CandidateId)
+                    .ToListAsync(cancellationToken)).ToHashSet();
+                var settled = Settle(made, madeFacts, phoneRows, await KindsAsync([.. made, .. phoneRows], cancellationToken), picked);
 
                 var nextSeq = (await db.ScanCandidates.Where(c => c.SessionId == session.Id).MaxAsync(c => (int?)c.Seq, cancellationToken) ?? 0) + 1;
-                foreach (var (candidate, title, key) in made)
+                foreach (var candidate in settled.Added)
                 {
-                    if (!PcShelfUpgrade.Stands(key, title, existing, printed))
-                    {
-                        continue;
-                    }
-
                     db.ScanCandidates.Add(candidate);
                     db.ScanCandidates.Entry(candidate).Property(c => c.Seq).CurrentValue = nextSeq++; // Seq is history, so it is written through EF
                     added.Add(candidate);
+                }
+
+                foreach (var row in settled.LeftOut)
+                {
+                    CandidateSkip.Apply(row, ServerDidNotSee.StepName);
+                    skipped.Add(row);
                 }
 
                 snap.ServerReadAt = clock.GetUtcNow();
@@ -233,25 +240,163 @@ public static class ReadShelfSnap
                 await jobs.EnqueueManyAsync(IdentifyItems.ResolveJobType, pending, cancellationToken);
             }
 
-            return new ShelfReadAnswer(new CandidatesDto(await CandidateProjection.ToDtosAsync(db, added, cancellationToken)), found.Count);
+            return new ShelfReadAnswer(new CandidatesDto(await CandidateProjection.ToDtosAsync(db, [.. added, .. skipped], cancellationToken)), found.Count);
         }
 
-        /// <summary>The release a row shows first (its best alternative), as the key the upgrade rule compares; null when it shows none.</summary>
-        private static PcShelfUpgrade.ReleaseKey? BestReleaseOf(string? alternativesJson) =>
-            CandidateJson.ReadAlternatives(alternativesJson) is { Count: > 0 } alternatives
-                ? PcShelfUpgrade.ReleaseKey.Of(alternatives[0].Title, alternatives[0].Year)
-                : null;
+        /// <summary>What the read does to the snap: the server's rows to add, and the phone's rows that become server skips.</summary>
+        private sealed record Settled(List<ScanCandidate> Added, List<ScanCandidate> LeftOut);
 
-        /// <summary>The rows an earlier read of this snap added, in order: what a second request for the same snap answers.</summary>
+        /// <summary>
+        /// <see cref="PcShelfUpgrade"/> over the snap. The phone's rows are told apart by how identify stored them: a row whose read is
+        /// marked unconfirmed is one only the phone's model read (M: the phone marks a model read Vision has nothing at; identify clears
+        /// the mark where the two engines read the same release at one place); every other picture row is Vision's (V). A row identify
+        /// skipped (a repeat, a lost place, a fragment, an unfound spine) is a skipped read, which the rule never sees, as in the eval.
+        /// A server row whose release a phone row already has is not added again: that row is the row (a Vision row is confirmed already;
+        /// a model row stays unconfirmed, as the server row would have been). A phone row the rule leaves out (a Vision row it does not
+        /// keep, a model row) becomes a server skip, but only while it is the server's to change: still undecided or as the server
+        /// decided it, not edited, not added, not kept as a provisional record, and answered (a row still Pending has no release to judge).
+        /// </summary>
+        private static Settled Settle(
+            List<ScanCandidate> server,
+            List<ReadFacts> serverFacts,
+            List<ScanCandidate> phone,
+            IReadOnlyDictionary<Guid, WorkKind> kinds,
+            IReadOnlySet<Guid> picked)
+        {
+            var standing = phone.Where(row => !SkippedByTheReading(row)).ToList();
+            var vision = standing.Where(row => !StoredRead.IsUnconfirmed(row.InferredJson)).ToList();
+            var model = standing.Where(row => StoredRead.IsUnconfirmed(row.InferredJson)).ToList();
+            var serverReads = server.Select((row, i) => ShelfReadOf(row, serverFacts[i], kinds)).ToList();
+            var visionReads = vision.Select(row => ShelfReadOf(row, StoredRead.From(row).Facts, kinds)).ToList();
+            var modelReads = model.Select(row => ShelfReadOf(row, StoredRead.From(row).Facts, kinds)).ToList();
+            var decision = PcShelfUpgrade.Decide(serverReads, visionReads);
+
+            var added = new List<ScanCandidate>();
+            var standsIn = new HashSet<ScanCandidate>(ReferenceEqualityComparer.Instance);
+            for (var i = 0; i < server.Count; i++)
+            {
+                // The row the phone already has for this release, Vision's first: the server's row is not shown twice.
+                var key = serverReads[i].Release;
+                var same = key is null ? null
+                    : vision.Where((_, j) => visionReads[j].Release == key).FirstOrDefault()
+                        ?? model.Where((_, j) => modelReads[j].Release == key).FirstOrDefault();
+                if (same is null)
+                {
+                    added.Add(server[i]); // unconfirmed: had a Vision row named its release, that row would be the row
+                }
+                else
+                {
+                    standsIn.Add(same);
+                }
+            }
+
+            if (decision.PhoneStands)
+            {
+                return new Settled(added, []); // the server named no release: no evidence against the phone's rows
+            }
+
+            var leftOut = vision.Where((row, j) => !decision.VisionKept[j] && !standsIn.Contains(row) && TheServersToChange(row, picked))
+                .Concat(model.Where(row => !standsIn.Contains(row) && TheServersToChange(row, picked)))
+                .OrderBy(row => row.Seq)
+                .ToList();
+            return new Settled(added, leftOut);
+        }
+
+        /// <summary>The trace step a search again leaves (<c>SearchForCandidate</c>).</summary>
+        private const string SearchStep = "search";
+
+        /// <summary>The outcome of every server skip's trace step (<see cref="CandidateSkip"/>).</summary>
+        private const string SkippedOutcome = "skipped";
+
+        /// <summary>A row identify skipped as a read (a repeat, a lost place, a fragment, an unfound spine): no read of the shelf for the rule.</summary>
+        private static bool SkippedByTheReading(ScanCandidate row) =>
+            SkipReasons.Of(row.Decision, row.AlreadyOwnedCount, CandidateJson.ReadTrace(row.TraceJson))
+                is SkipReason.Repeat or SkipReason.Place or SkipReason.Fragment or SkipReason.UnfoundSpine;
+
+        /// <summary>
+        /// Whether the server may still skip a phone row: nothing the person did is on it, and nothing added it. Each way a person acts on a
+        /// row leaves one of these marks, and any one of them keeps the row as it is: accepting or rejecting it (a decision with no
+        /// <c>AutoDecision</c> beside it: deciding clears the server's own); picking a release (the matched release is no longer the first
+        /// alternative, and a pick of another option is kept as match feedback, <paramref name="picked"/>); searching again (a <c>search</c>
+        /// trace step); changing the format, platform, edition or copies (<see cref="ScanCandidate.UserEdited"/>, <see cref="ScanCandidate.Copies"/>);
+        /// putting a skipped row back (a <c>skipped</c> step on a row that is no longer the server's skip); adding it, or it being added by
+        /// itself (<see cref="ScanCandidate.CreatedItemId"/>, <see cref="ScanCandidate.AutoCommittedItemIds"/>); keeping it as a provisional
+        /// record (<see cref="ScanCandidate.ProvisionalId"/>); undoing its auto-add or setting it back to undecided (a matched read that is
+        /// not model-only, owned or wishlisted is ticked by the resolver, so only a person makes one undecided). A row still Pending has no
+        /// answer to judge. A row the server already skipped for another reason keeps that reason.
+        /// </summary>
+        private static bool TheServersToChange(ScanCandidate row, IReadOnlySet<Guid> picked)
+        {
+            var trace = CandidateJson.ReadTrace(row.TraceJson);
+            var first = CandidateJson.ReadAlternatives(row.AlternativesJson) is { Count: > 0 } alternatives ? alternatives[0].ReleaseId : (Guid?)null;
+            var asTheServerLeftIt = row.Decision switch
+            {
+                CandidateDecision.Undecided => !(row.Resolution == CandidateResolution.Matched
+                    && !StoredRead.IsUnconfirmed(row.InferredJson)
+                    && row.AlreadyOwnedCount == 0
+                    && trace.WishlistItemId is null),
+                CandidateDecision.Accepted => trace.AutoDecision == CandidateDecision.Accepted,
+                _ => false,
+            };
+            return asTheServerLeftIt
+                && (row.MatchedReleaseId is null || row.MatchedReleaseId == first)
+                && !picked.Contains(row.Id)
+                && !trace.Steps.Any(step => step.Provider == SearchStep || step.Outcome == SkippedOutcome)
+                && !row.UserEdited
+                && row.Copies == 1
+                && row.CreatedItemId is null
+                && row.AutoCommittedItemIds is null
+                && row.ProvisionalId is null
+                && row.Resolution != CandidateResolution.Pending;
+        }
+
+        /// <summary>A row as the rule reads it: the text it was searched with, the kind it was read as, and the release it shows first.</summary>
+        private static PcShelfUpgrade.ShelfRead ShelfReadOf(ScanCandidate row, ReadFacts facts, IReadOnlyDictionary<Guid, WorkKind> kinds)
+        {
+            var best = BestOf(row);
+            return new(
+                facts.SearchText,
+                facts.Kind,
+                best?.Title,
+                best?.Year,
+                best is not null && kinds.TryGetValue(best.ReleaseId, out var kind) ? kind : null);
+        }
+
+        private static StoredAlternative? BestOf(ScanCandidate row) =>
+            CandidateJson.ReadAlternatives(row.AlternativesJson) is { Count: > 0 } alternatives ? alternatives[0] : null;
+
+        /// <summary>The kind of the release each row shows first: from the catalogue, or from a release this request is adding (not saved yet).</summary>
+        private async Task<IReadOnlyDictionary<Guid, WorkKind>> KindsAsync(IEnumerable<ScanCandidate> rows, CancellationToken cancellationToken)
+        {
+            var releaseIds = rows.Select(BestOf).OfType<StoredAlternative>().Select(best => best.ReleaseId).Distinct().ToList();
+            var kinds = new Dictionary<Guid, WorkKind>(await ShotKindRule.LocalKindsAsync(db, releaseIds, cancellationToken));
+            foreach (var releaseId in releaseIds.Where(id => !kinds.ContainsKey(id)))
+            {
+                if (db.Releases.Local.FirstOrDefault(r => r.Id == releaseId) is { } release
+                    && db.Works.Local.FirstOrDefault(w => w.Id == release.WorkId) is { } work)
+                {
+                    kinds[releaseId] = work.Kind;
+                }
+            }
+
+            return kinds;
+        }
+
+        /// <summary>
+        /// What a second request for the same snap answers: the rows the first read added, in order, then the phone's rows it skipped
+        /// (each as it is now: one the person put back since is shown as they left it).
+        /// </summary>
         private async Task<Result<ShelfReadAnswer>> RowsOfAsync(ScanSession session, ScanSnap snap, CancellationToken cancellationToken)
         {
             var rows = await db.ScanCandidates.AsNoTracking()
-                .Where(c => c.SessionId == session.Id && c.SnapId == snap.Id && c.Source == CandidateSource.PictureServerModel)
+                .Where(c => c.SessionId == session.Id && c.SnapId == snap.Id)
                 .OrderBy(c => c.Seq)
                 .ToListAsync(cancellationToken);
-            return new ShelfReadAnswer(new CandidatesDto(await CandidateProjection.ToDtosAsync(db, rows, cancellationToken)), 0);
+            var added = rows.Where(c => c.Source == CandidateSource.PictureServerModel);
+            var skipped = rows.Where(c => c.Source != CandidateSource.PictureServerModel
+                && CandidateJson.ReadTrace(c.TraceJson).Steps.Any(step => step.Provider == ServerDidNotSee.StepName));
+            return new ShelfReadAnswer(new CandidatesDto(await CandidateProjection.ToDtosAsync(db, [.. added, .. skipped], cancellationToken)), 0);
         }
-
         /// <summary>
         /// Grounds the reads the way <c>identify</c> does, within its budget: the catalogue and the providers are asked for every read at
         /// once, a read that found nothing is asked again trimmed, then the series pass and the kind pass over the whole shelf. A read the
