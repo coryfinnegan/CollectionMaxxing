@@ -104,8 +104,11 @@ export function alsoOwnLine(what: string | null, where: string | null): string {
 const ownedWhat = (c: CandidateDto): string | null =>
   c.release?.platform?.name ?? (c.release ? (formatLabels[c.release.format] ?? null) : null);
 
-/** A candidate from a picture, not a barcode: it has no code, only what the phone read. */
-export const isPictureCandidate = (c: Pick<CandidateDto, 'source'>) => c.source === 'picture_apple_model' || c.source === 'picture_text';
+/**
+ * A candidate from a picture, not a barcode: it has no code, only what was read. A source this build does not know (the server's
+ * `picture_server_model` on an older build, or one added later) is a picture too: only a barcode or a search is something else.
+ */
+export const isPictureCandidate = (c: Pick<CandidateDto, 'source'>) => c.source !== 'barcode' && c.source !== 'search';
 
 /** A repeat the phone recognized on its own; the lookup is still waiting. */
 export const LOCAL_MATCH_COPY = "Seen before. We'll check it when you're online.";

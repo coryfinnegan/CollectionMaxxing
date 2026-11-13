@@ -29,7 +29,7 @@ describe('skipped rows', () => {
     expect(SKIP_REASON_COPY.unfound_spine).toBe('Nothing in the catalog matched');
     expect(SKIP_REASON_COPY.owned).toBe('Already in your library');
     expect(SKIP_REASON_COPY.wishlist).toBe('On your wishlist');
-    expect(SKIP_REASON_COPY.server_did_not_see).toBe('A second look left it out');
+    expect(SKIP_REASON_COPY.server_did_not_see).toBe('The server read this shelf differently');
     expect(SKIP_REASON_COPY.person).toBe('You skipped it');
   });
 

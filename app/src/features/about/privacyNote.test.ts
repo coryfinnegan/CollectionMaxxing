@@ -3,10 +3,16 @@ import { PRIVACY_NOTE } from './privacyNote';
 const text = PRIVACY_NOTE.join(' ');
 
 describe('privacy note', () => {
-  it('says covers are read on the phone, by Apple’s on-device model, and nothing goes to an AI service', () => {
-    expect(text).toMatch(/read on your iPhone/i);
-    expect(text).toMatch(/on-device model/i);
-    expect(text).toMatch(/nothing goes to an AI service/i);
+  it('says covers are read on the phone, with Apple’s on-device tools, and nothing goes to an AI service', () => {
+    expect(PRIVACY_NOTE[0]).toBe('Covers are read on your iPhone with Apple’s on-device tools, and nothing goes to an AI service.');
+  });
+
+  it('says a shelf photo goes to the server that hosts the library, is read by a free model there, and is not kept', () => {
+    const shelf = PRIVACY_NOTE.find((p) => /shelf photo/i.test(p))!;
+    expect(shelf).toMatch(/server that hosts your library can read shelves, a shelf photo goes there too/i);
+    expect(shelf).toMatch(/free model running on that server reads the spines/i);
+    expect(shelf).toMatch(/thrown away, never kept/i);
+    expect(shelf).toMatch(/leaves your iPhone smaller, with its hidden photo details removed/i);
   });
 
   it('reads right on the web too: it never says "this iPhone"', () => {
@@ -93,6 +99,6 @@ describe('privacy note', () => {
   });
 
   it('stays short', () => {
-    expect(text.split(/\s+/).length).toBeLessThanOrEqual(175);
+    expect(text.split(/\s+/).length).toBeLessThanOrEqual(230); // 175 before the shelf-photo paragraph (#809) added about 50 words
   });
 });

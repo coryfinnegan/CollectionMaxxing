@@ -22,6 +22,12 @@ describe('what a picture card says', () => {
     expect(isPictureCandidate(picture({ source: 'barcode' }))).toBe(false);
   });
 
+  it('draws a row from the server’s own shelf read, or a source this build does not know, as a plain picture row', () => {
+    expect(isPictureCandidate(picture({ source: 'picture_server_model' }))).toBe(true);
+    expect(isPictureCandidate(picture({ source: 'picture_from_the_future' as CandidateDto['source'] }))).toBe(true);
+    expect(describeCandidate(picture({ source: 'picture_from_the_future' as CandidateDto['source'] })).title).toBe('Space Mutiny');
+  });
+
   // #435: the Suddenly You record, verbatim from prod: garbled duplicated blurb as the read text,
   // the right title in the read guess, two correct catalog alternatives.
   const blurb = 'The rare author who can make you laugh and cry—the same page. ẠồThe rare author who can make you laugh and cry-on the same pageại';
