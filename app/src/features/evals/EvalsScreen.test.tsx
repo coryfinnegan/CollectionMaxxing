@@ -131,7 +131,7 @@ describe('EvalsScreen', () => {
       await press('Continue');
 
       expect(await screen.findByText(/M3 gate: pass/)).toBeTruthy();
-      expect(kit.downloaded).toEqual(['photo-002', 'photo-002', 'photo-004']);
+      expect(kit.downloaded).toEqual(['photo-002', 'photo-004']);
     });
 
     it('asks once before Start over throws the run away, and Keep the run backs out', async () => {
@@ -198,7 +198,7 @@ describe('EvalsScreen', () => {
         photos: 4,
         onRead: async () => {
           // photo-003 is a single, read by the model first, so the Vision step after it never starts
-          if (kit.downloaded.length === 5 && !stopped) {
+          if (kit.downloaded.length === 3 && !stopped) {
             stopped = true;
             await act(async () => {
               fireEvent.press(await screen.findByRole('button', { name: 'Stop and score the 2 read so far' }));
@@ -295,7 +295,7 @@ describe('EvalsScreen', () => {
 
     expect(await screen.findByText(/M3 gate: pass/)).toBeTruthy();
     expect(evalsMock.sent.map((s) => s.photoId)).toEqual(['photo-001', 'photo-002']);
-    expect(kit.downloaded).toEqual(['photo-001', 'photo-001', 'photo-002']);
+    expect(kit.downloaded).toEqual(['photo-001', 'photo-002']);
   });
 
   it('offers to look again when the run could not be opened', async () => {
