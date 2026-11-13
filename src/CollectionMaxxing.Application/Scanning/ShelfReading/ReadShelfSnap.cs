@@ -433,7 +433,7 @@ public static class ReadShelfSnap
                 var started = Stopwatch.GetTimestamp();
                 Task<ProviderAnswers> Ask(ReadFacts facts) => AskOneAsync(facts, places, started, budget.Token, cancellationToken);
 
-                // A read nothing matched is then asked for its film's alternative titles, once, after its place is given back (#828): the
+                // A read nothing matched is then asked for its film's alternative titles, once, after its place is given back: the
                 // reads waiting for a place are not held up by it.
                 var asked = await Task.WhenAll(toAsk.Select(async i =>
                 {
