@@ -153,15 +153,23 @@ public static class DecideCandidate
             candidate.GuidanceCode = null; // picked: a resolved row carries no guidance
             candidate.Score = chosen?.Score ?? candidate.Score;
             candidate.AlreadyOwnedCount = owned.Count;
-            candidate.TraceJson = CandidateJson.Serialize(
-                trace with { OwnedAt = CandidateResolver.OwnedAt(owned), WishlistItemId = owned.WishlistItemId, SoldItemId = owned.SoldItemId });
-
             // Picking is a choice to add this one, unless the library already has it, or has it on the wishlist (Got it, on its card,
-            // is how that one comes in): then the person has to say so.
+            // is how that one comes in): then the person has to say so. A pick is the person's, even of the release the server put
+            // first, so the server's own decision is forgotten, as an explicit decision forgets it; only the skip the pick itself
+            // makes for an owned or wishlisted release stays the server's, so the row still says why it was skipped.
+            var skippedAsOwned = !decisionGiven && (owned.Count > 0 || owned.WishlistItemId is not null);
             if (!decisionGiven)
             {
-                candidate.Decision = owned.Count > 0 || owned.WishlistItemId is not null ? CandidateDecision.Rejected : CandidateDecision.Accepted;
+                candidate.Decision = skippedAsOwned ? CandidateDecision.Rejected : CandidateDecision.Accepted;
             }
+
+            candidate.TraceJson = CandidateJson.Serialize(trace with
+            {
+                OwnedAt = CandidateResolver.OwnedAt(owned),
+                WishlistItemId = owned.WishlistItemId,
+                SoldItemId = owned.SoldItemId,
+                AutoDecision = skippedAsOwned ? CandidateDecision.Rejected : null,
+            });
 
             return null;
         }

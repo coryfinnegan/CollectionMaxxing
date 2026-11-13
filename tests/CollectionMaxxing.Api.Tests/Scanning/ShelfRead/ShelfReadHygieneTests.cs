@@ -12,7 +12,7 @@ namespace CollectionMaxxing.Api.Tests.Scanning.ShelfRead;
 // and the recognition config tells the phone whether to send a picture at all.
 public class ShelfReadHygieneTests(ApiFixture api) : ShelfReadTest(api)
 {
-    private const string Title = "Wave Race 64";
+    private const string Title = "Zephyrine Quillmarch Odyssey";
     private const string PrintedLine = "QUIET UNIQUE PRINT LINE 77";
 
     private string CoversRoot { get; } = Path.Combine(Path.GetTempPath(), "cm-shelf-read-" + Guid.NewGuid().ToString("N"));
@@ -84,7 +84,8 @@ public class ShelfReadHygieneTests(ApiFixture api) : ShelfReadTest(api)
         lines.ShouldNotBeEmpty("the read is logged");
         lines.ShouldContain(l => l.Contains("ended ok", StringComparison.Ordinal) && l.Contains("HTTP 200", StringComparison.Ordinal) && l.Contains("1 items", StringComparison.Ordinal));
         lines.ShouldContain(l => l.Contains("scan.snap_not_found", StringComparison.Ordinal) && l.Contains("HTTP 404", StringComparison.Ordinal));
-        Logs.Lines.ShouldNotContain(l => l.Contains(Title, StringComparison.OrdinalIgnoreCase) && l.Contains("Shelf", StringComparison.Ordinal));
+        Logs.Lines.ShouldNotContain(l => l.Contains(Title, StringComparison.OrdinalIgnoreCase), "no log line of any kind names the title the reader read");
+        Logs.Lines.ShouldNotContain(l => l.Contains("Quillmarch", StringComparison.OrdinalIgnoreCase));
         Logs.Lines.ShouldNotContain(l => l.Contains(PrintedLine, StringComparison.OrdinalIgnoreCase));
         Logs.Lines.ShouldNotContain(l => l.Contains("unique print", StringComparison.OrdinalIgnoreCase));
     }

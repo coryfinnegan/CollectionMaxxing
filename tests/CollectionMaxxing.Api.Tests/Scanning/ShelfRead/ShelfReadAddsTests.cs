@@ -69,19 +69,19 @@ public class ShelfReadAddsTests(ApiFixture api) : ShelfReadTest(api)
     }
 
     [Fact]
-    public async Task A_title_only_the_server_read_is_added_only_when_the_shelf_print_backs_it()
+    public async Task A_title_only_the_server_read_is_added_whatever_the_shelf_prints()
     {
         var (_, editor, sessionId) = await ArrangeAsync(null, "Star Fox 64", "Wave Race 64", "Pilotwings 64");
         using var _1 = editor;
-        var backed = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneRead("Star Fox 64"));
-        var unbacked = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneRead("Star Fox 64"));
+        var printed = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneRead("Star Fox 64"));
+        var unprinted = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneRead("Star Fox 64"));
         Reader.Answer = _ => ScriptedReader.Found("Wave Race 64", "Pilotwings 64");
 
-        var withPrint = await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, backed, lines: ["WAVE RACE 64", "STAR FOX"]));
-        var withoutIt = await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, unbacked, lines: ["STAR FOX", "SOMETHING ELSE ENTIRELY"]));
+        var withPrint = await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, printed, lines: ["WAVE RACE 64", "STAR FOX"]));
+        var withoutIt = await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, unprinted, lines: ["STAR FOX", "SOMETHING ELSE ENTIRELY"]));
 
-        withPrint.Select(ReleaseTitle).ShouldBe(["Wave Race 64"], "only the title the print carries");
-        withoutIt.ShouldBeEmpty("the print carries neither title");
+        withPrint.Select(ReleaseTitle).ShouldBe(["Wave Race 64", "Pilotwings 64"], "in the server's order");
+        withoutIt.Select(ReleaseTitle).ShouldBe(["Wave Race 64", "Pilotwings 64"], "the server's reads need no print to stand (#814)");
     }
 
     [Fact]
@@ -146,7 +146,7 @@ public class ShelfReadAddsTests(ApiFixture api) : ShelfReadTest(api)
         var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", phone);
         Reader.Answer = _ => ScriptedReader.Found("Wave Race 64");
 
-        var added = await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
+        var added = (await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap))).Where(c => SourceOf(c) == "picture_server_model").ToList();
 
         added.Count.ShouldBe(1);
         Resolution(added[0]).ShouldBe("matched");
@@ -206,20 +206,17 @@ public class ShelfReadAddsTests(ApiFixture api) : ShelfReadTest(api)
     }
 
     [Fact]
-    public async Task A_title_the_catalogue_cannot_find_is_held_to_the_print_like_any_other()
+    public async Task A_title_the_catalogue_cannot_find_is_added_to_search_for_by_hand()
     {
         var (_, editor, sessionId) = await ArrangeAsync(null, "Star Fox 64");
         using var _1 = editor;
-        var backed = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneRead("Star Fox 64"));
-        var unbacked = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneRead("Star Fox 64"));
+        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneRead("Star Fox 64"));
         Reader.Answer = _ => ScriptedReader.Found("Zebra Opus Nowhere");
 
-        var withPrint = await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, backed, lines: ["ZEBRA OPUS NOWHERE"]));
-        var withoutIt = await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, unbacked, lines: ["STAR FOX 64"]));
+        var added = await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap, lines: ["STAR FOX 64"]));
 
-        withPrint.Count.ShouldBe(1);
-        Resolution(withPrint[0]).ShouldBe("not_found", "a row to search for by hand, as the eval's server_vision row shows it");
-        withoutIt.ShouldBeEmpty("an invented title the shelf does not print");
+        added.Count.ShouldBe(1);
+        Resolution(added[0]).ShouldBe("not_found", "a row to search for by hand, as the eval's server_vision row shows it");
     }
 
     [Fact]

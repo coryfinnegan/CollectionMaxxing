@@ -16,10 +16,26 @@ namespace CollectionMaxxing.Infrastructure.Tests.Evals;
 /// </summary>
 public sealed class ServerReadingsTests : IDisposable
 {
+    /// <summary>The longest any read may take here: a turn that is never given back fails the test instead of hanging it.</summary>
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(5);
+
     private readonly SyntheticGolden _golden = new();
     private readonly FakeTimeProvider _clock = new();
+    private readonly ShelfReadGate _gate = new(Options.Create(new ShelfReadQueueOptions { QueueWaitSeconds = 1, QueueMaxWaiting = 0 }));
 
-    public void Dispose() => _golden.Dispose();
+    /// <summary>
+    /// Cancels every read still waiting once the test has had its time. A timed-out wait alone is not enough: the stuck read would keep
+    /// holding the readings' one-at-a-time lock (static, shared by every test), and each later test would then wait out its own timeout.
+    /// </summary>
+    private readonly CancellationTokenSource _patience = new(Patience);
+
+    public void Dispose()
+    {
+        _patience.Cancel();
+        _patience.Dispose();
+        _gate.Dispose();
+        _golden.Dispose();
+    }
 
     private sealed class CountingReader(Func<ShelfReadResult> answer, FakeTimeProvider? clock = null, TimeSpan? takes = null) : IShelfReader
     {
@@ -68,6 +84,7 @@ public sealed class ServerReadingsTests : IDisposable
         new FileGoldenSet(Options.Create(new EvalsOptions { Enabled = enabled, GoldenPath = _golden.Golden, ResultsPath = _golden.Results })),
         reader,
         stills ?? new PassThrough(),
+        _gate,
         Options.Create(options ?? new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl" }),
         Options.Create(new EvalsOptions { Enabled = enabled, GoldenPath = _golden.Golden, ResultsPath = _golden.Results }),
         _clock,
@@ -85,8 +102,8 @@ public sealed class ServerReadingsTests : IDisposable
         var reader = new CountingReader(Ok, _clock, TimeSpan.FromSeconds(7));
         var readings = Readings(reader);
 
-        var first = await readings.ReadAsync("c1", false, CancellationToken.None);
-        var second = await readings.ReadAsync("c1", false, CancellationToken.None);
+        var first = await readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
+        var second = await readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
 
         reader.Calls.ShouldBe(1);
         first!.LatencyMs.ShouldBe(7000);
@@ -102,16 +119,16 @@ public sealed class ServerReadingsTests : IDisposable
         _golden.AddSingle("c1", null);
         var reader = new CountingReader(Ok);
 
-        await Readings(reader).ReadAsync("c1", false, CancellationToken.None);
-        await Readings(reader).ReadAsync("c1", false, CancellationToken.None);
+        await Readings(reader).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
+        await Readings(reader).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
         reader.Calls.ShouldBe(1, "the same settings");
 
-        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "another-vl" }).ReadAsync("c1", false, CancellationToken.None);
-        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", Prompt = "List what you see." }).ReadAsync("c1", false, CancellationToken.None);
-        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", MaxTokens = 100 }).ReadAsync("c1", false, CancellationToken.None);
-        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", MaxLongEdge = 512 }).ReadAsync("c1", false, CancellationToken.None);
-        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", SecondLook = false }).ReadAsync("c1", false, CancellationToken.None);
-        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", SecondLookMaxTokens = 450 }).ReadAsync("c1", false, CancellationToken.None);
+        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "another-vl" }).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
+        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", Prompt = "List what you see." }).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
+        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", MaxTokens = 100 }).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
+        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", MaxLongEdge = 512 }).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
+        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", SecondLook = false }).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
+        await Readings(reader, new ShelfReaderOptions { Endpoint = "http://127.0.0.1:1", Model = "example-vl", SecondLookMaxTokens = 450 }).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
 
         reader.Calls.ShouldBe(7);
         CacheFiles().Count.ShouldBe(7);
@@ -129,10 +146,10 @@ public sealed class ServerReadingsTests : IDisposable
         _golden.AddSingle("c1", null);
         var reader = new CountingReader(Ok);
 
-        await Readings(reader, version: 1).ReadAsync("c1", false, CancellationToken.None);
-        await Readings(reader, version: 1).ReadAsync("c1", false, CancellationToken.None);
+        await Readings(reader, version: 1).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
+        await Readings(reader, version: 1).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
         reader.Calls.ShouldBe(1);
-        await Readings(reader, version: 2).ReadAsync("c1", false, CancellationToken.None);
+        await Readings(reader, version: 2).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
 
         reader.Calls.ShouldBe(2);
         CacheFiles().Count.ShouldBe(2);
@@ -143,10 +160,10 @@ public sealed class ServerReadingsTests : IDisposable
     {
         _golden.AddSingle("c1", null);
         var reader = new CountingReader(Ok);
-        await Readings(reader).ReadAsync("c1", false, CancellationToken.None);
+        await Readings(reader).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
         var stills = new CountingStills();
 
-        var served = await Readings(reader, stills: stills).ReadAsync("c1", true, CancellationToken.None);
+        var served = await Readings(reader, stills: stills).ReadAsync("c1", true, _patience.Token).WaitAsync(Patience);
 
         served!.Result.Items.Count.ShouldBe(1);
         reader.Calls.ShouldBe(1);
@@ -160,7 +177,7 @@ public sealed class ServerReadingsTests : IDisposable
         var reader = new CountingReader(Ok);
         var stills = new CountingStills();
 
-        var served = await Readings(reader, stills: stills).ReadAsync("c1", true, CancellationToken.None);
+        var served = await Readings(reader, stills: stills).ReadAsync("c1", true, _patience.Token).WaitAsync(Patience);
 
         served.ShouldBeNull();
         reader.Calls.ShouldBe(0);
@@ -175,9 +192,9 @@ public sealed class ServerReadingsTests : IDisposable
         var reader = new CountingReader(Ok);
         var readings = Readings(reader);
 
-        await readings.ReadAsync("c1", false, CancellationToken.None);
+        await readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
         await File.WriteAllBytesAsync(path, JpegFixtures.WithSize(3, 3));
-        await readings.ReadAsync("c1", false, CancellationToken.None);
+        await readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
 
         reader.Calls.ShouldBe(2);
         CacheFiles().Count.ShouldBe(2);
@@ -192,8 +209,8 @@ public sealed class ServerReadingsTests : IDisposable
         var reader = new CountingReader(() => ShelfReadResult.Empty(status));
         var readings = Readings(reader);
 
-        var first = await readings.ReadAsync("c1", false, CancellationToken.None);
-        await readings.ReadAsync("c1", false, CancellationToken.None);
+        var first = await readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
+        await readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
 
         first!.Result.Status.ShouldBe(status);
         reader.Calls.ShouldBe(2, "a failed read is tried again");
@@ -207,8 +224,8 @@ public sealed class ServerReadingsTests : IDisposable
         var reader = new CountingReader(() => new ShelfReadResult(Ok().Items, ShelfReadStatus.CutShort));
         var readings = Readings(reader);
 
-        await readings.ReadAsync("c1", false, CancellationToken.None);
-        var second = await readings.ReadAsync("c1", false, CancellationToken.None);
+        await readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
+        var second = await readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
 
         reader.Calls.ShouldBe(1);
         second!.Result.Status.ShouldBe(ShelfReadStatus.CutShort);
@@ -221,14 +238,14 @@ public sealed class ServerReadingsTests : IDisposable
         _golden.AddSingle("c1", null);
         var reader = new CountingReader(Ok);
         var readings = Readings(reader);
-        await readings.ReadAsync("c1", false, CancellationToken.None);
+        await readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
         await File.WriteAllTextAsync(CacheFiles().Single(), "{ not json");
 
-        var again = await readings.ReadAsync("c1", false, CancellationToken.None);
+        var again = await readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
 
         reader.Calls.ShouldBe(2);
         again!.Result.Items.Count.ShouldBe(1);
-        await readings.ReadAsync("c1", false, CancellationToken.None);
+        await readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
         reader.Calls.ShouldBe(2, "the file was replaced with a good one");
     }
 
@@ -238,9 +255,9 @@ public sealed class ServerReadingsTests : IDisposable
         _golden.AddSingle("c1", null);
         var reader = new CountingReader(Ok);
 
-        (await Readings(reader, new ShelfReaderOptions { Endpoint = "" }).ReadAsync("c1", false, CancellationToken.None)).ShouldBeNull();
-        (await Readings(reader, enabled: false).ReadAsync("c1", false, CancellationToken.None)).ShouldBeNull();
-        (await Readings(reader).ReadAsync("nope", false, CancellationToken.None)).ShouldBeNull();
+        (await Readings(reader, new ShelfReaderOptions { Endpoint = "" }).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience)).ShouldBeNull();
+        (await Readings(reader, enabled: false).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience)).ShouldBeNull();
+        (await Readings(reader).ReadAsync("nope", false, _patience.Token).WaitAsync(Patience)).ShouldBeNull();
 
         reader.Calls.ShouldBe(0);
         Readings(reader, new ShelfReaderOptions { Endpoint = "" }).IsConfigured.ShouldBeFalse();
@@ -254,7 +271,7 @@ public sealed class ServerReadingsTests : IDisposable
         var reader = new CountingReader(Ok);
         var refuses = new Refusing();
 
-        var result = await Readings(reader, stills: refuses).ReadAsync("c1", false, CancellationToken.None);
+        var result = await Readings(reader, stills: refuses).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
 
         result!.Result.Status.ShouldBe(ShelfReadStatus.Unavailable);
         reader.Calls.ShouldBe(0);
@@ -271,10 +288,31 @@ public sealed class ServerReadingsTests : IDisposable
         var reader = new CountingReader(Ok);
         var readings = Readings(reader);
 
-        await Task.WhenAll(readings.ReadAsync("c1", false, CancellationToken.None), readings.ReadAsync("c2", false, CancellationToken.None));
+        await Task.WhenAll(readings.ReadAsync("c1", false, _patience.Token).WaitAsync(Patience), readings.ReadAsync("c2", false, _patience.Token).WaitAsync(Patience));
 
         reader.Calls.ShouldBe(2);
         reader.MostAtOnce.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_read_waits_while_the_scanner_has_the_reader_and_reads_once_it_is_free()
+    {
+        _golden.AddSingle("c1", null);
+        var reader = new CountingReader(Ok);
+        var scanner = await _gate.EnterAsync(CancellationToken.None); // a person's :read-shelf holds the one reader
+        scanner.ShouldNotBeNull();
+
+        var read = Readings(reader).ReadAsync("c1", false, _patience.Token).WaitAsync(Patience);
+        await Task.Delay(1500); // longer than the queue lets a person wait: the re-ground is never told the reader is busy
+
+        read.IsCompleted.ShouldBeFalse("it waits its turn");
+        reader.Calls.ShouldBe(0);
+        scanner.Dispose();
+        var served = await read.WaitAsync(TimeSpan.FromSeconds(10));
+        served.ShouldNotBeNull().Result.Status.ShouldBe(ShelfReadStatus.Ok);
+        reader.Calls.ShouldBe(1);
+        using var next = await _gate.EnterAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        next.ShouldNotBeNull("the read gave the turn back");
     }
 
     [Fact]

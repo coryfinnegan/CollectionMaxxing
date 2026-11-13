@@ -46,9 +46,28 @@ public class ShelfReadGateTests
         using var gate = Gate(waitSeconds: 1);
         using var first = await gate.EnterAsync(CancellationToken.None);
 
-        var second = await gate.EnterAsync(CancellationToken.None);
+        var second = await gate.EnterAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10)); // fails, never hangs, when the wait is ignored
 
         second.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task The_evals_wait_for_the_reader_past_the_limit_and_take_no_place_in_the_queue()
+    {
+        using var gate = Gate(waitSeconds: 1, maxWaiting: 1);
+        var first = await gate.EnterAsync(CancellationToken.None);
+        var eval = gate.WaitTurnAsync(CancellationToken.None);
+        await Task.Delay(1500);
+
+        eval.IsCompleted.ShouldBeFalse("past the limit a person waits, it still waits");
+        var person = gate.EnterAsync(CancellationToken.None);
+        await Task.Delay(100);
+        person.IsCompleted.ShouldBeFalse("the waiting eval read took no place in the queue, so the person queues instead of being told the reader is busy");
+        _ = person.ContinueWith(t => t.Result?.Dispose(), TaskScheduler.Default);
+        first!.Dispose();
+
+        using var turn = await eval.WaitAsync(TimeSpan.FromSeconds(5));
+        turn.ShouldNotBeNull();
     }
 
     [Fact]

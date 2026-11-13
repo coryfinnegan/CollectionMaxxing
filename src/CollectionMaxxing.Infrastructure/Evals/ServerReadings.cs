@@ -14,12 +14,14 @@ namespace CollectionMaxxing.Infrastructure.Evals;
 /// Reads the golden photos with the server's own shelf reader for the eval rows (ADR-033). The picture goes through the still maker, then the reader. The
 /// answer is kept in <c>reader-cache/&lt;photo sha256&gt;-&lt;settings sha256&gt;.json</c> in <c>Evals:ResultsPath</c> (settings: the model, the prompt and the
 /// reader's token, picture-size and repeat limits), so a re-ground never reads a photo twice, while a new model, prompt, setting or picture reads again. A
-/// read that failed (unavailable, timed out) is not kept. Reads are taken one at a time: the reader has one slot.
+/// read that failed (unavailable, timed out) is not kept. Reads are taken one at a time: the reader has one slot, and each read takes its turn at
+/// <see cref="ShelfReadGate"/>, the queue the scanner's own shelf reads wait in, so the two never read at once.
 /// </summary>
 public sealed class ServerReadings(
     IGoldenSet golden,
     IShelfReader reader,
     IShelfStillMaker stills,
+    ShelfReadGate gate,
     IOptions<ShelfReaderOptions> reading,
     IOptions<EvalsOptions> evals,
     TimeProvider time,
@@ -82,9 +84,15 @@ public sealed class ServerReadings(
                 return new ServerReading(ShelfReadResult.Empty(ShelfReadStatus.Unavailable), 0);
             }
 
-            var started = time.GetTimestamp();
-            var result = await reader.ReadAsync(still, cancellationToken);
-            var elapsed = (long)time.GetElapsedTime(started).TotalMilliseconds;
+            // The reader is shared with the scanner's :read-shelf: one picture at a time, so this read takes the scanner's turn too.
+            ShelfReadResult result;
+            long elapsed;
+            using (await gate.WaitTurnAsync(cancellationToken))
+            {
+                var started = time.GetTimestamp();
+                result = await reader.ReadAsync(still, cancellationToken);
+                elapsed = (long)time.GetElapsedTime(started).TotalMilliseconds;
+            }
             if (result.Status == ShelfReadStatus.Off)
             {
                 return null;

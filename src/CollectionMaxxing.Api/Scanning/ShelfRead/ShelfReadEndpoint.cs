@@ -17,13 +17,14 @@ public sealed class ShelfReadForm
     /// <summary>A JPEG of the shelf, at most 4 MB and 4096 pixels a side.</summary>
     public IFormFile? File { get; init; }
 
-    /// <summary>The text lines Vision read in the shot, as a JSON array of strings. Optional: the shelf's print backs up a title only the server's reader found.</summary>
+    /// <summary>The text lines Vision read in the shot, as a JSON array of strings. Optional, and checked, but not used: the server's reads need no print to stand.</summary>
     public string? Lines { get; init; }
 }
 
 /// <summary>
 /// <c>POST /api/v1/scan-sessions/{id}/snaps/{snapId}:read-shelf</c> (ADR-033): the shelf picture of a snap <c>identify</c> has answered, read by the
-/// server's own reader, and the titles it finds that the scan lacks added as unconfirmed rows. The picture is read straight from the request into
+/// server's own reader, and the snap settled server first (<see cref="PcShelfUpgrade"/>): the titles it finds that the scan lacks added as unconfirmed
+/// rows, and the phone's rows the rule leaves out skipped (skip reason <c>server_did_not_see</c>) unless the person acted on them. The picture is read straight from the request into
 /// memory, at most 4 MB, as the photo upload does: it is never spooled to disk, never stored, and gone when the request ends. The route is not bound
 /// to a form model, so no antiforgery token applies; what protects the write is what protects every other write (the bearer token, or the session
 /// cookie with the <c>X-CSRF</c> header).
@@ -167,13 +168,13 @@ internal static class ShelfReadEndpoint
             return Answer(logger, error.ToProblem(), error.Code, StatusCodes.Status400BadRequest, 0, clock);
         }
 
-        IReadOnlyList<string>? lines = null;
-        if (linesTooLong || !TryParseLines(linesText, out lines))
+        // The lines are still checked, so a client sending a broken list hears about it; the server-first rule (#814) needs no print.
+        if (linesTooLong || !LinesAreValid(linesText))
         {
             return Refuse(logger, clock, StatusCodes.Status400BadRequest, "Bad request", "The lines must be a JSON array of strings.", "scan.shelf_lines_invalid");
         }
 
-        var result = await handler.HandleAsync(new ReadShelfSnap.Command(id, snapId, file, lines), cancellationToken);
+        var result = await handler.HandleAsync(new ReadShelfSnap.Command(id, snapId, file), cancellationToken);
         if (result.IsSuccess)
         {
             LogOutcome(logger, "ok", StatusCodes.Status200OK, result.Value.ItemsRead, clock);
@@ -202,10 +203,9 @@ internal static class ShelfReadEndpoint
         _ => StatusCodes.Status400BadRequest,
     };
 
-    /// <summary>The lines as a list; none when the part is absent or empty. False for anything that is not a JSON array of strings.</summary>
-    private static bool TryParseLines(string? text, out IReadOnlyList<string>? lines)
+    /// <summary>True when the part is absent or empty, or a JSON array of strings; false for anything else.</summary>
+    private static bool LinesAreValid(string? text)
     {
-        lines = null;
         if (string.IsNullOrWhiteSpace(text))
         {
             return true;
@@ -213,14 +213,7 @@ internal static class ShelfReadEndpoint
 
         try
         {
-            var parsed = JsonSerializer.Deserialize<string?[]>(text);
-            if (parsed is null)
-            {
-                return false;
-            }
-
-            lines = [.. parsed.OfType<string>()];
-            return true;
+            return JsonSerializer.Deserialize<string?[]>(text) is not null;
         }
         catch (JsonException)
         {

@@ -74,7 +74,7 @@ public class ShelfReadQueueTests(ApiFixture api) : ShelfReadTest(api)
         var first = ReadShelfAsync(client, sessionId, snaps[0]);
         await UntilAsync(() => Reader.Calls == 1);
 
-        var second = await ReadShelfAsync(client, sessionId, snaps[1]);
+        var second = await ReadShelfAsync(client, sessionId, snaps[1]).WaitAsync(Patience); // fails, never hangs, when the wait is ignored
 
         second.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
         second.Headers.RetryAfter.ShouldNotBeNull();
