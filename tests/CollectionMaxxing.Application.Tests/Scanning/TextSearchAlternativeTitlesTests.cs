@@ -53,8 +53,8 @@ public class TextSearchAlternativeTitlesTests
 
     private static ReadItem Read(string title = BoxTitle, WorkKind? kind = WorkKind.Film) => new() { Title = title, Kind = kind };
 
-    private static Task<ProviderAnswers> Ask(TextSearchResolver resolver, ReadItem read, ProviderAnswers answers, CancellationToken budget = default) =>
-        resolver.WithAlternativeTitlesAsync(read, [Spine], answers, CancellationToken.None, budget);
+    private static Task<ProviderAnswers> Ask(TextSearchResolver resolver, ReadItem read, ProviderAnswers answers, LocalPool? local = null, CancellationToken budget = default) =>
+        resolver.WithAlternativeTitlesAsync(read, Spine, local ?? LocalPool.Empty, answers, CancellationToken.None, budget);
 
     private static Task<IReadOnlyList<string>?> Titles(params string[] titles) => Task.FromResult<IReadOnlyList<string>?>(titles);
 
@@ -98,22 +98,6 @@ public class TextSearchAlternativeTitlesTests
 
         catalogue.Asked.ShouldBeEmpty();
         answers.ShouldBeSameAs(found);
-    }
-
-    [Fact]
-    public async Task With_several_profiles_the_read_counts_as_matched_only_when_every_profile_says_so()
-    {
-        // The caller cannot always say which profile the read gets: with two, it is asked unless every one says matched.
-        var catalogue = new FakeCatalogue((_, _) => Titles());
-        var loose = new ScoringProfile("loose", Spine.Weights, new ScoringThresholds { MatchedScore = 0.1 });
-        var found = Answers(Highlanders);
-
-        await Resolver(catalogue).WithAlternativeTitlesAsync(Read(), [loose, Spine], found, CancellationToken.None, CancellationToken.None);
-        catalogue.Asked.Count.ShouldBe(3);
-
-        var onlyLoose = new FakeCatalogue((_, _) => Titles());
-        await Resolver(onlyLoose).WithAlternativeTitlesAsync(Read(), [loose], found, CancellationToken.None, CancellationToken.None);
-        onlyLoose.Asked.ShouldBeEmpty();
     }
 
     [Fact]
@@ -215,7 +199,7 @@ public class TextSearchAlternativeTitlesTests
         using var budget = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         var found = Answers(Highlanders);
 
-        var answers = await Ask(Resolver(catalogue), Read(), found, budget.Token);
+        var answers = await Ask(Resolver(catalogue), Read(), found, budget: budget.Token);
 
         answers.ShouldBeSameAs(found);
     }
@@ -227,7 +211,7 @@ public class TextSearchAlternativeTitlesTests
         using var budget = new CancellationTokenSource();
         await budget.CancelAsync();
 
-        await Ask(Resolver(catalogue), Read(), Answers(Highlanders), budget.Token);
+        await Ask(Resolver(catalogue), Read(), Answers(Highlanders), budget: budget.Token);
 
         catalogue.Asked.ShouldBeEmpty();
     }
@@ -235,23 +219,24 @@ public class TextSearchAlternativeTitlesTests
     [Fact]
     public async Task The_calls_run_at_the_same_time_not_one_after_the_other()
     {
-        var started = 0;
-        var allStarted = new TaskCompletionSource();
+        var inside = 0;
+        var most = 0;
         var catalogue = new FakeCatalogue(async (_, ct) =>
         {
-            if (Interlocked.Increment(ref started) == 3)
+            var now = Interlocked.Increment(ref inside);
+            int seen;
+            while (now > (seen = Volatile.Read(ref most)) && Interlocked.CompareExchange(ref most, now, seen) != seen)
             {
-                allStarted.SetResult();
             }
 
-            // Each call waits for the other two: one after the other, this never finishes.
-            await allStarted.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+            await Task.Delay(200, ct);
+            Interlocked.Decrement(ref inside);
             return (IReadOnlyList<string>?)[];
         });
 
         await Ask(Resolver(catalogue), Read(), Answers(Highlanders));
 
-        started.ShouldBe(3);
+        most.ShouldBe(3, "all three calls were inside the catalogue at once");
     }
 
     [Fact]
@@ -264,5 +249,153 @@ public class TextSearchAlternativeTitlesTests
         var step = answers.Steps.ShouldHaveSingleItem();
         step.Provider.ShouldBe("alternative_titles");
         step.Outcome.ShouldNotContain("Highlander");
+    }
+
+    // ---- what "already matched" means: the whole pool, under the read's own profile --------------------------------------------
+
+    private static LocalPool Local(params CandidateRelease[] candidates) =>
+        new([.. candidates.Select(c => (c, new ResolutionOption(Guid.NewGuid(), null, 0)))], null, new Dictionary<string, Guid>());
+
+    private static CandidateRelease LocalFilm(string key, string title, int year) => new() { Key = key, Title = title, Kind = WorkKind.Film, Year = year };
+
+    [Fact]
+    public async Task A_film_matched_by_its_own_title_stays_matched_when_another_film_lists_the_read_as_an_alternative_title()
+    {
+        var catalogue = new FakeCatalogue((release, _) => release.ExternalId == "movie/1" ? Titles("The Sorcerer") : Titles());
+        var found = Answers(Release("movie/2", "The Sorcerer", year: 1994), Release("movie/1", "Highlander III", year: 1994));
+
+        var answers = await Ask(Resolver(catalogue), Read("The Sorcerer"), found);
+        var result = TextSearchResolver.Score(Read("The Sorcerer"), Spine, LocalPool.Empty, answers, pendingWhenProvidersFailed: true);
+
+        catalogue.Asked.ShouldBeEmpty();
+        result.Verdict.ShouldBe(ResolutionVerdict.Matched);
+        result.Options[0].Provider!.ExternalId.ShouldBe("movie/2");
+    }
+
+    [Fact]
+    public async Task A_read_the_local_catalogue_matches_by_the_films_own_title_asks_for_no_alternative_titles()
+    {
+        var catalogue = new FakeCatalogue((_, _) => Titles("The Sorcerer"));
+        var found = Answers(Release("movie/1", "Highlander III", year: 1994));
+
+        var answers = await Ask(Resolver(catalogue), Read("The Sorcerer"), found, local: Local(LocalFilm("local:1", "The Sorcerer", 1994)));
+
+        catalogue.Asked.ShouldBeEmpty();
+        answers.ShouldBeSameAs(found);
+    }
+
+    [Fact]
+    public async Task A_read_is_judged_under_the_profile_it_is_scored_with()
+    {
+        var found = Answers(Release("movie/1", "Highlander", year: 1986), Release("movie/2", "Highlander: Endgame", year: 2000));
+        var strict = new ScoringProfile("strict", Spine.Weights, new ScoringThresholds { MatchedScore = 1.01 });
+
+        var underItsOwn = new FakeCatalogue((_, _) => Titles());
+        await Resolver(underItsOwn).WithAlternativeTitlesAsync(Read("Highlander"), Spine, LocalPool.Empty, found, CancellationToken.None, CancellationToken.None);
+        var underOther = new FakeCatalogue((_, _) => Titles());
+        await Resolver(underOther).WithAlternativeTitlesAsync(Read("Highlander"), strict, LocalPool.Empty, found, CancellationToken.None, CancellationToken.None);
+
+        underItsOwn.Asked.ShouldBeEmpty("matched under the profile the read gets");
+        underOther.Asked.ShouldNotBeEmpty("not matched under a stricter profile");
+    }
+
+    [Fact]
+    public async Task A_film_already_in_the_local_catalogue_takes_the_alternative_titles_of_its_provider_copy()
+    {
+        var catalogue = new FakeCatalogue((release, _) => release.ExternalId == "movie/3" ? Titles("Highlander: The Final Dimension") : Titles());
+        var local = Local(LocalFilm("local:3", "Highlander III: The Sorcerer", 1994));
+
+        var answers = await Ask(Resolver(catalogue), Read(), Answers(Highlanders), local: local);
+        var result = TextSearchResolver.Score(Read(), Spine, local, answers, pendingWhenProvidersFailed: true);
+
+        catalogue.Asked.Count.ShouldBe(3);
+        result.Verdict.ShouldBe(ResolutionVerdict.Matched);
+        result.Options[0].LocalReleaseId.ShouldNotBeNull("the catalogue's own copy is the match");
+        result.Options[0].Provider.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_manual_search_never_asks_for_alternative_titles()
+    {
+        var catalogue = new FakeCatalogue((_, _) => Titles("Highlander: The Final Dimension"));
+        var searching = new FilmSearcher(Highlanders, catalogue);
+        var resolver = new TextSearchResolver(null!, new EmptyLocal(), [searching], new ScanningOptions(), NullLogger<TextSearchResolver>.Instance);
+
+        var result = await resolver.SearchAsync(BoxTitle, CancellationToken.None);
+
+        searching.Searched.ShouldBeGreaterThan(0);
+        catalogue.Asked.ShouldBeEmpty();
+        result.Verdict.ShouldNotBe(ResolutionVerdict.Matched);
+    }
+
+    private sealed class EmptyLocal : ILocalCatalogSearch
+    {
+        public Task<IReadOnlyList<LocalHit>> FindAsync(LocalSearch search, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<LocalHit>>([]);
+    }
+
+    /// <summary>A catalogue that finds the films for any search and lists their titles through <paramref name="titles"/>.</summary>
+    private sealed class FilmSearcher(IReadOnlyList<ProviderRelease> films, FakeCatalogue titles) : ICatalogProvider, IAlternativeTitleProvider
+    {
+        public int Searched { get; private set; }
+
+        public string Name => "fake";
+
+        public bool Supports(WorkKind kind) => kind is WorkKind.Film or WorkKind.Tv;
+
+        public bool HasAlternativeTitles(ProviderRelease release) => titles.HasAlternativeTitles(release);
+
+        public Task<ProviderRelease?> LookupAsync(CollectionMaxxing.Domain.Identifiers.Identifier id, CancellationToken ct) => Task.FromResult<ProviderRelease?>(null);
+
+        public Task<IReadOnlyList<ProviderRelease>> SearchAsync(CatalogQuery query, CancellationToken ct)
+        {
+            Searched++;
+            return Task.FromResult(films);
+        }
+
+        public Task<IReadOnlyList<string>?> AlternativeTitlesAsync(ProviderRelease release, CancellationToken ct) => titles.AlternativeTitlesAsync(release, ct);
+    }
+
+    // ---- who asks: the server's own reads only ---------------------------------------------------------------------------------
+
+    private sealed class FixedScoring : Microsoft.Extensions.Options.IOptionsMonitor<ScoringOptions>
+    {
+        public ScoringOptions CurrentValue { get; } = new();
+
+        public ScoringOptions Get(string? name) => CurrentValue;
+
+        public IDisposable? OnChange(Action<ScoringOptions, string?> listener) => null;
+    }
+
+    private static CollectionMaxxing.Application.Scanning.Identify.ReadFacts Facts(bool serverRead) =>
+        new(BoxTitle, null, null, null, null, WorkKind.Film, null, null, null, ServerRead: serverRead);
+
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 3)]
+    public async Task Only_the_servers_own_reads_ask_for_alternative_titles(bool serverRead, int asked)
+    {
+        var catalogue = new FakeCatalogue((_, _) => Titles());
+        var grounding = new CollectionMaxxing.Application.Scanning.Identify.IdentifyGrounding(Resolver(catalogue), new FixedScoring());
+
+        await grounding.WithAlternativeTitlesAsync(
+            Facts(serverRead), ScoringProfileKind.ShelfSpine, LocalPool.Empty, Answers(Highlanders), CancellationToken.None, CancellationToken.None);
+
+        catalogue.Asked.Count.ShouldBe(asked);
+    }
+
+    [Fact]
+    public async Task Grounding_a_read_on_its_own_never_asks_for_alternative_titles_whoever_made_it()
+    {
+        // The phone's identify and the background job ground a read with GroundAsync: neither asks, server mark or not.
+        var asked = new FakeCatalogue((_, _) => Titles("Highlander: The Final Dimension"));
+        var grounding = new CollectionMaxxing.Application.Scanning.Identify.IdentifyGrounding(
+            new TextSearchResolver(null!, new EmptyLocal(), [new FilmSearcher(Highlanders, asked)], new ScanningOptions(), NullLogger<TextSearchResolver>.Instance),
+            new FixedScoring());
+
+        await grounding.GroundAsync(Facts(serverRead: true), ScoringProfileKind.ShelfSpine, TimeSpan.FromSeconds(30), CancellationToken.None);
+        await grounding.GroundAsync(Facts(serverRead: false), ScoringProfileKind.ShelfSpine, TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        asked.Asked.ShouldBeEmpty();
     }
 }

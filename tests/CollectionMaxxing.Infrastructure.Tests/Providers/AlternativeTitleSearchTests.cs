@@ -69,9 +69,16 @@ public class AlternativeTitleSearchTests(PostgresFixture db) : DatabaseTest(db)
         new TextSearchResolver(null!, new EmptyCatalogue(), [host.Get<TmdbProvider>()], new ScanningOptions(), NullLogger<TextSearchResolver>.Instance),
         new FixedScoring());
 
-    private static Task<BarcodeResolution> GroundAsync(ProviderHost host, string read = Read, ScoringProfileKind profile = ScoringProfileKind.ShelfSpine) =>
-        Grounding(host).GroundAsync(
-            ReadSanitizer.Sanitize(new ReadFacts(read, null, null, null, null, WorkKind.Film, null, null, null)), profile, TimeSpan.FromSeconds(30), CancellationToken.None);
+    /// <summary>The server's shelf read, the way the handler grounds it: the providers are asked, then (for a read nothing matched) the alternative titles, then the verdict.</summary>
+    private static async Task<BarcodeResolution> GroundAsync(
+        ProviderHost host, string read = Read, WorkKind kind = WorkKind.Film, bool serverRead = true, ScoringProfileKind profile = ScoringProfileKind.ShelfSpine)
+    {
+        var grounding = Grounding(host);
+        var facts = ReadSanitizer.Sanitize(new ReadFacts(read, null, null, null, null, kind, null, null, null, ServerRead: serverRead));
+        var providers = await grounding.AskProvidersAsync(facts, CancellationToken.None, CancellationToken.None);
+        providers = await grounding.WithAlternativeTitlesAsync(facts, profile, LocalPool.Empty, providers, CancellationToken.None, CancellationToken.None);
+        return grounding.Score(facts, profile, LocalPool.Empty, providers);
+    }
 
     private static List<string> AlternativeTitleCalls(ProviderHost host) =>
         [.. host.Server.LogEntries.Select(e => e.RequestMessage!.Path).Where(p => p!.EndsWith("/alternative_titles", StringComparison.Ordinal))];
@@ -154,9 +161,10 @@ public class AlternativeTitleSearchTests(PostgresFixture db) : DatabaseTest(db)
 
         var answer = await GroundAsync(host);
 
-        answer.Verdict.ShouldBe(ResolutionVerdict.Ambiguous);
-        answer.Options[0].Provider!.Title.ShouldBe("Highlander: Endgame");
-        answer.Options.Select(o => o.Provider!.Title).ShouldBe(["Highlander: Endgame", "Highlander II: The Quickening", "Highlander III: The Sorcerer"]);
+        var withoutTheCalls = await GroundAsync(host, serverRead: false);
+        answer.Verdict.ShouldBe(withoutTheCalls.Verdict);
+        answer.Verdict.ShouldNotBe(ResolutionVerdict.Matched);
+        answer.Options.Select(o => (o.Provider!.Title, o.Score)).ShouldBe(withoutTheCalls.Options.Select(o => (o.Provider!.Title, o.Score)));
         report.Failed.ShouldBeFalse("the optional call's failure must not make the whole search look unanswered");
     }
 
@@ -191,13 +199,52 @@ public class AlternativeTitleSearchTests(PostgresFixture db) : DatabaseTest(db)
               {"id":502,"original_name":"Kaiju Hour Reloaded","overview":"","poster_path":null,"first_air_date":"2009-04-01","name":"Kaiju Hour Reloaded"}
             ]}
             """);
-        Answer(host, "/3/tv/501/alternative_titles", """{"id":501,"results":[{"iso_3166_1":"JP","title":"Monster Parade Weekly","type":""}]}""");
+        Answer(host, "/3/tv/501/alternative_titles", """{"id":501,"results":[{"iso_3166_1":"JP","title":"Kaiju Monster Parade Weekly","type":""}]}""");
         Answer(host, "/3/tv/502/alternative_titles", """{"id":502,"results":[]}""");
 
-        var answer = await Grounding(host).GroundAsync(
-            new ReadFacts("KAIJU HOUR MONSTER PARADE WEEKLY", null, null, null, null, WorkKind.Tv, null, null, null), ScoringProfileKind.ShelfSpine, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var answer = await GroundAsync(host, "KAIJU MONSTER PARADE WEEKLY", WorkKind.Tv);
 
         AlternativeTitleCalls(host).Order().ShouldBe(["/3/tv/501/alternative_titles", "/3/tv/502/alternative_titles"]);
+        answer.Verdict.ShouldBe(ResolutionVerdict.Matched, "the show wins only through the title TMDB lists under results");
         answer.Options[0].Provider!.Title.ShouldBe("Kaiju Hour");
+    }
+
+    [Fact]
+    public async Task A_list_with_no_alternative_titles_is_remembered_too()
+    {
+        using var host = Host();
+        Answer(host, "/3/movie/8010/alternative_titles", """{"id":8010,"titles":[]}""");
+        Answer(host, "/3/movie/8011/alternative_titles", """{"id":8011,"titles":[]}""");
+        Answer(host, "/3/movie/8012/alternative_titles", """{"id":8012,"titles":[]}""");
+
+        await GroundAsync(host);
+        await GroundAsync(host);
+
+        AlternativeTitleCalls(host).Count.ShouldBe(3, "the second read answered from the cache, empty lists included");
+    }
+
+    [Fact]
+    public async Task A_failing_alternative_titles_call_is_sent_once_not_retried()
+    {
+        using var host = Host();
+        Answer(host, "/3/movie/8010/alternative_titles", "{}", status: 503);
+        Answer(host, "/3/movie/8011/alternative_titles", "{}", status: 503);
+        Answer(host, "/3/movie/8012/alternative_titles", "{}", status: 503);
+
+        await GroundAsync(host);
+
+        AlternativeTitleCalls(host).Count.ShouldBe(3, "one request for each of the three candidates, none repeated");
+    }
+
+    [Fact]
+    public async Task A_phones_read_of_the_same_film_never_asks_for_alternative_titles()
+    {
+        using var host = Host();
+        Answer(host, "/3/movie/8012/alternative_titles", SorcererTitles);
+
+        var answer = await GroundAsync(host, serverRead: false);
+
+        AlternativeTitleCalls(host).ShouldBeEmpty();
+        answer.Verdict.ShouldNotBe(ResolutionVerdict.Matched);
     }
 }

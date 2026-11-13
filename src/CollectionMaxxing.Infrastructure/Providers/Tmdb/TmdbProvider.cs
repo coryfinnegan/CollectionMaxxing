@@ -163,7 +163,8 @@ public sealed class TmdbProvider(HttpClient http, IOptions<TmdbOptions> options,
             _ => Task.FromResult(Get(url)),
             ct,
             isEmpty: doc => !doc.RootElement.Items(film ? "titles" : "results").Any(),
-            reportFailure: false);
+            reportFailure: false,
+            noRetry: true);
         if (result.Status == FetchStatus.NotFound)
         {
             return [];

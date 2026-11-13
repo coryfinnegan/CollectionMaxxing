@@ -77,10 +77,7 @@ public sealed class TextSearchResolver(
         var found = await FindLocalAsync(text, cancellationToken);
         var query = new CatalogQuery { Title = text, Format = format, Platform = platform, Limit = Limit };
         using var failFast = ProviderCalls.FailFast(); // a person is waiting
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(options.ResolveBudget);
-        var answers = await AskProvidersAsync(query, cancellationToken, timeout.Token);
-        answers = await WithAlternativeTitlesAsync(read, [CatalogProjection.Profile], answers, cancellationToken, timeout.Token);
+        var answers = await AskProvidersAsync(query, options.ResolveBudget, cancellationToken);
         return Score(read, CatalogProjection.Profile, found, answers, pendingWhenProvidersFailed: false, contextWorkIds, found.WorkIdsByKey);
     }
 
@@ -185,26 +182,29 @@ public sealed class TextSearchResolver(
         return new ProviderAnswers(answers.SelectMany(a => a.Found).ToList(), steps, answers.Any(a => a.Failed));
     }
 
-    /// <summary>The most candidates asked for their alternative titles in one search.</summary>
+    /// <summary>The most candidates asked for their alternative titles for one read.</summary>
     public const int MaxAlternativeTitleAsks = 3;
 
     /// <summary>
     /// For a film or TV read that nothing matched, asks the film catalogue for the alternative titles of the best few candidates
     /// that carry the read's leading distinctive word (a film read by the title on its box, whose catalogue title is another),
-    /// so the scorer can compare the read with them (<see cref="CandidateRelease.AlternativeTitles"/>). The calls run at the same
-    /// time, within <paramref name="budgetToken"/>. Nothing is asked when a candidate already scores at the matched threshold, for
-    /// a read of a book, a game or another kind, or for a candidate of another kind. A call that fails, runs out of time or is refused leaves
-    /// that candidate exactly as it was, and is logged by type only; it never fails the search or marks it as unanswered. Only
-    /// <paramref name="callerToken"/> cancelling escapes. Touches no database.
+    /// so the scorer can compare the read with them (<see cref="CandidateRelease.AlternativeTitles"/>). The caller asks once per
+    /// read, with the profile the read is scored with and the catalogue's candidates (<paramref name="found"/>). Nothing is asked
+    /// when any candidate, the catalogue's or a provider's, already scores at that profile's matched threshold by its own title (an
+    /// alternative title must never take a match away from the film the read names), for a read of a book, a game or another
+    /// kind, or for a candidate of another kind. The calls run at the same time, within <paramref name="budgetToken"/>. A call that
+    /// fails, runs out of time or is refused leaves that candidate exactly as it was, and is logged by type only; it never fails the
+    /// search or marks it as unanswered. Only <paramref name="callerToken"/> cancelling escapes. Touches no database.
     /// </summary>
     public async Task<ProviderAnswers> WithAlternativeTitlesAsync(
-        ReadItem read, IReadOnlyList<ScoringProfile> profiles, ProviderAnswers answers, CancellationToken callerToken, CancellationToken budgetToken)
+        ReadItem read, ScoringProfile profile, LocalPool found, ProviderAnswers answers, CancellationToken callerToken, CancellationToken budgetToken)
     {
         ArgumentNullException.ThrowIfNull(read);
-        ArgumentNullException.ThrowIfNull(profiles);
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(found);
         ArgumentNullException.ThrowIfNull(answers);
 
-        if (profiles.Count == 0 || read.Kind is not (null or WorkKind.Film or WorkKind.Tv) || string.IsNullOrWhiteSpace(read.Title) || budgetToken.IsCancellationRequested)
+        if (read.Kind is not (null or WorkKind.Film or WorkKind.Tv) || string.IsNullOrWhiteSpace(read.Title) || budgetToken.IsCancellationRequested)
         {
             return answers;
         }
@@ -217,21 +217,36 @@ public sealed class TextSearchResolver(
             return answers;
         }
 
-        // The caller may not know which profile the read will be scored with: the read counts as matched only when it is under every one
-        // it may get, and the candidates are ranked under the profile that likes them least.
-        var candidates = answers.Found.Select(release => release.ToCandidate()).ToList();
-        var (ranked, matchedScore) = profiles
-            .Select(profile => (Ranked: MatchScorer.Evaluate(read, candidates, profile).Ranked, profile.Thresholds.MatchedScore))
-            .MinBy(result => result.Ranked[0].Score - result.MatchedScore);
-        if (Math.Round(ranked[0].Score, 9) >= Math.Round(matchedScore, 9))
+        // The pool as Score builds it: the catalogue's candidates, then the providers' that the catalogue does not hold. A provider
+        // release the catalogue holds stands for the catalogue's candidate (its key), so it can still be asked.
+        var pool = found.Items.Select(o => o.Scoring).ToList();
+        var keyOf = pool.ToDictionary(c => CatalogProjection.DuplicateKey(c.Title, c.Year, c.Platform, c.Creators), c => c.Key, StringComparer.Ordinal);
+        var asking = new Dictionary<string, ProviderRelease>(StringComparer.Ordinal);
+        foreach (var release in answers.Found)
+        {
+            var duplicateKey = CatalogProjection.DuplicateKey(release.Title, release.Year, release.Platform, release.Creators);
+            if (!keyOf.TryGetValue(duplicateKey, out var key))
+            {
+                key = release.ToCandidate().Key;
+                keyOf[duplicateKey] = key;
+                pool.Add(release.ToCandidate());
+            }
+
+            if (askable.Contains(release))
+            {
+                asking.TryAdd(key, release);
+            }
+        }
+
+        var ranked = MatchScorer.Evaluate(read, pool, profile).Ranked;
+        if (Math.Round(ranked[0].Score, 9) >= Math.Round(profile.Thresholds.MatchedScore, 9))
         {
             return answers;
         }
 
-        var byKey = askable.ToDictionary(release => release.ToCandidate().Key, StringComparer.Ordinal);
         var top = ranked
-            .Where(scored => byKey.ContainsKey(scored.Release.Key))
-            .Select(scored => byKey[scored.Release.Key])
+            .Where(scored => asking.ContainsKey(scored.Release.Key))
+            .Select(scored => asking[scored.Release.Key])
             .Where(release => Identify.TrimmedSpans.FindCarriesLeadingWords(read.Title, new Identify.TrimmedSpan(string.Empty, string.Empty), release.Title, []))
             .Take(MaxAlternativeTitleAsks)
             .ToList();
@@ -265,6 +280,15 @@ public sealed class TextSearchResolver(
         catch (OperationCanceledException) when (callerToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (OperationCanceledException)
+        {
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                logger.LogDebug("Provider {Provider} ran out of time when asked for alternative titles.", provider.Name);
+            }
+
+            return null;
         }
 #pragma warning disable CA1031 // An optional extra call: whatever goes wrong with it leaves the candidates as they were.
         catch (Exception exception)
@@ -396,9 +420,21 @@ public sealed class TextSearchResolver(
         var known = pool.Select(o => CatalogProjection.DuplicateKey(o.Scoring.Title, o.Scoring.Year, o.Scoring.Platform, o.Scoring.Creators)).ToHashSet(StringComparer.Ordinal);
         foreach (var release in answers.Found)
         {
-            if (known.Add(CatalogProjection.DuplicateKey(release.Title, release.Year, release.Platform, release.Creators)))
+            var duplicateKey = CatalogProjection.DuplicateKey(release.Title, release.Year, release.Platform, release.Creators);
+            if (known.Add(duplicateKey))
             {
                 pool.Add((release.ToCandidate(), new ResolutionOption(null, release, 0)));
+            }
+            else if (release.AlternativeTitles.Count > 0)
+            {
+                // The catalogue already holds this release: the provider's copy is dropped, but the other titles it was asked for go on
+                // the catalogue's candidate, for scoring only (nothing is stored).
+                var at = pool.FindIndex(o => o.Scoring.AlternativeTitles.Count == 0
+                    && CatalogProjection.DuplicateKey(o.Scoring.Title, o.Scoring.Year, o.Scoring.Platform, o.Scoring.Creators) == duplicateKey);
+                if (at >= 0)
+                {
+                    pool[at] = (pool[at].Scoring with { AlternativeTitles = release.AlternativeTitles }, pool[at].Option);
+                }
             }
         }
 
