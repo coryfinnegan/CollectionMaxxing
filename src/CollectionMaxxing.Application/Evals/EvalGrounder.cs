@@ -226,7 +226,7 @@ public sealed class EvalGrounder(
                 using var asking = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
                 var providers = await grounding.AskProvidersAsync(claim.Facts, cancellationToken, asking.Token);
 
-                // The server's own reads, as in the shelf-read handler, are also asked for their film's alternative titles, once (#828).
+                // The server's own reads, as in the shelf-read handler, are also asked for their film's alternative titles, once.
                 providers = await grounding.WithAlternativeTitlesAsync(claim.Facts, claim.Profile, local, providers, cancellationToken, asking.Token);
 
                 // An ask cut short by the app stopping may hand back a thin answer instead of an error: never remember that.

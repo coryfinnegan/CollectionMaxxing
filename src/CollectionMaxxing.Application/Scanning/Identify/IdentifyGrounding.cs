@@ -157,7 +157,7 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     /// <summary>
     /// For a read the server's own shelf reader made (<see cref="ReadFacts.ServerRead"/>) that nothing has matched yet: the film
     /// catalogue's alternative titles of the best few candidates that carry its leading word, so a film read by the title on its box
-    /// can find the catalogue's main title (#828). Asked once per read, after its providers answered and its place was given back,
+    /// can find the catalogue's main title. Asked once per read, after its providers answered and its place was given back,
     /// and never for a read of the phone (those answer inside a short budget and hold one of a few places), within
     /// <paramref name="budgetToken"/>. The answers come back as they were when nothing was asked or the call failed.
     /// </summary>
