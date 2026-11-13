@@ -26,7 +26,7 @@ public sealed class TmdbOptions
 /// <summary>TMDB: film and TV by title and year. There is no barcode lookup, so <c>LookupAsync</c> is always null.</summary>
 public sealed class TmdbProvider(HttpClient http, IOptions<TmdbOptions> options, ProviderRuntime runtime)
     : HttpCatalogProvider(http, runtime, ProviderName, TokenBucketRateLimiter.IntervalFor(options.Value.RequestsPerSecond)),
-    ISearchableCatalogProvider
+    ISearchableCatalogProvider, IAlternativeTitleProvider
 {
     public const string ProviderName = "tmdb";
 
@@ -130,6 +130,58 @@ public sealed class TmdbProvider(HttpClient http, IOptions<TmdbOptions> options,
 
         using var json = result.Json;
         return json.RootElement.Items("results").Select(r => FromResult(r, kind)).OfType<ProviderRelease>().ToList();
+    }
+
+    /// <summary>The most alternative titles kept for one release (TMDB lists a few dozen for a well-travelled film).</summary>
+    private const int MaxAlternativeTitles = 80;
+
+    public bool HasAlternativeTitles(ProviderRelease release) =>
+        Enabled && release.Provider == ProviderName && release.Kind is WorkKind.Film or WorkKind.Tv
+        && (release.ExternalId.StartsWith("movie/", StringComparison.Ordinal) || release.ExternalId.StartsWith("tv/", StringComparison.Ordinal));
+
+    /// <summary>
+    /// <c>/3/movie/{id}/alternative_titles</c> (titles under <c>titles</c>) or <c>/3/tv/{id}/alternative_titles</c> (under
+    /// <c>results</c>), through the same cache, rate limiter and resilience as a search; a stored answer is not asked for again.
+    /// A call that could not be answered gives null and is not added to the caller's failure report.
+    /// </summary>
+    public async Task<IReadOnlyList<string>?> AlternativeTitlesAsync(ProviderRelease release, CancellationToken ct)
+    {
+        if (!HasAlternativeTitles(release))
+        {
+            return null;
+        }
+
+        var url = $"3/{release.ExternalId}/alternative_titles";
+        if (!IsBearer)
+        {
+            url += $"?api_key={Uri.EscapeDataString(_options.ApiKey!)}";
+        }
+
+        var film = release.ExternalId.StartsWith("movie/", StringComparison.Ordinal);
+        var result = await FetchAsync(
+            $"alternative_titles:{release.ExternalId}",
+            _ => Task.FromResult(Get(url)),
+            ct,
+            isEmpty: doc => !doc.RootElement.Items(film ? "titles" : "results").Any(),
+            reportFailure: false);
+        if (result.Status == FetchStatus.NotFound)
+        {
+            return [];
+        }
+
+        if (result.Json is null)
+        {
+            return null; // Failed or Denied: not answered
+        }
+
+        using var json = result.Json;
+        return json.RootElement.Items(film ? "titles" : "results")
+            .Select(t => t.Str("title"))
+            .OfType<string>()
+            .Where(t => !string.IsNullOrWhiteSpace(t) && !t.Equals(release.Title, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(MaxAlternativeTitles)
+            .ToList();
     }
 
     private HttpRequestMessage Get(string relativeUrl)

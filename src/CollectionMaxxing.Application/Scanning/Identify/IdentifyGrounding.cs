@@ -151,8 +151,21 @@ public sealed class IdentifyGrounding(TextSearchResolver search, IOptionsMonitor
     }
 
     /// <summary>The provider step: touches no database, so many reads can run at once within one budget.</summary>
-    public async Task<ProviderAnswers> AskProvidersAsync(ReadFacts facts, CancellationToken callerToken, CancellationToken budgetToken) =>
-        facts.ToQuery() is { } query ? await search.AskProvidersAsync(query, callerToken, budgetToken) : ProviderAnswers.None;
+    public async Task<ProviderAnswers> AskProvidersAsync(ReadFacts facts, CancellationToken callerToken, CancellationToken budgetToken)
+    {
+        if (facts.ToQuery() is not { } query)
+        {
+            return ProviderAnswers.None;
+        }
+
+        var answers = await search.AskProvidersAsync(query, callerToken, budgetToken);
+
+        // A film read by the title on its box that nothing matched: the film catalogue's alternative titles of the best few candidates
+        // that carry its leading word (#828). The caller scores later, with a profile this step cannot know, so it checks under both
+        // the ones a film is scored with. Within the same budget; a failure of it changes nothing.
+        return await search.WithAlternativeTitlesAsync(
+            facts.ToReadItem(), [ProfileFor(ScoringProfileKind.ShelfSpine), ProfileFor(ScoringProfileKind.Cover)], answers, callerToken, budgetToken);
+    }
 
     /// <summary>
     /// The verdict. A read with nothing legible is NotFound. A read that found nothing good while a provider was down or slow

@@ -80,7 +80,9 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
     /// quota check). <paramref name="refreshAuth"/> runs once on a 401, and returns true when the request is worth
     /// sending again with fresh credentials. With <paramref name="cacheNotFound"/> false a 404 (and an answer
     /// <paramref name="isEmpty"/> calls empty) is not remembered, so the same code is asked again next time. Otherwise
-    /// an empty answer is remembered for a day and a full answer for 30 days.
+    /// an empty answer is remembered for a day and a full answer for 30 days. With <paramref name="reportFailure"/> false a
+    /// failed call is not added to the caller's failure report: for an optional extra call whose failure must not make the
+    /// whole search look unanswered.
     /// </summary>
     protected async Task<FetchResult> FetchAsync(
         string cacheKey,
@@ -89,14 +91,15 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
         Func<CancellationToken, Task<bool>>? admit = null,
         Func<CancellationToken, Task<bool>>? refreshAuth = null,
         bool cacheNotFound = true,
-        Func<JsonDocument, bool>? isEmpty = null)
+        Func<JsonDocument, bool>? isEmpty = null,
+        bool reportFailure = true)
     {
         // Concurrent identical lookups share one upstream call: the first runs the fetch, the rest see what it cached.
         var result = await Runtime.Coalescer.RunAsync($"{Name}:{cacheKey}", token =>
             FetchUncoalescedAsync(cacheKey, buildRequest, admit, refreshAuth, cacheNotFound, isEmpty, token), ct);
 
         // One place for every way a fetch fails. A 404, an empty answer and a spent quota are answers, not failures.
-        if (result.Status == FetchStatus.Failed)
+        if (result.Status == FetchStatus.Failed && reportFailure)
         {
             ProviderCalls.ReportFailure();
         }

@@ -77,7 +77,10 @@ public sealed class TextSearchResolver(
         var found = await FindLocalAsync(text, cancellationToken);
         var query = new CatalogQuery { Title = text, Format = format, Platform = platform, Limit = Limit };
         using var failFast = ProviderCalls.FailFast(); // a person is waiting
-        var answers = await AskProvidersAsync(query, options.ResolveBudget, cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(options.ResolveBudget);
+        var answers = await AskProvidersAsync(query, cancellationToken, timeout.Token);
+        answers = await WithAlternativeTitlesAsync(read, [CatalogProjection.Profile], answers, cancellationToken, timeout.Token);
         return Score(read, CatalogProjection.Profile, found, answers, pendingWhenProvidersFailed: false, contextWorkIds, found.WorkIdsByKey);
     }
 
@@ -180,6 +183,96 @@ public sealed class TextSearchResolver(
         var asked = _providers.Where(p => query.Kind is { } kind ? p.Supports(kind) : Enum.GetValues<WorkKind>().Any(p.Supports)).ToList();
         var answers = await Task.WhenAll(asked.Select(p => AskUntilCloseAsync(p, query, steps, callerToken, budgetToken)));
         return new ProviderAnswers(answers.SelectMany(a => a.Found).ToList(), steps, answers.Any(a => a.Failed));
+    }
+
+    /// <summary>The most candidates asked for their alternative titles in one search.</summary>
+    public const int MaxAlternativeTitleAsks = 3;
+
+    /// <summary>
+    /// For a film or TV read that nothing matched, asks the film catalogue for the alternative titles of the best few candidates
+    /// that carry the read's leading distinctive word (a film read by the title on its box, whose catalogue title is another),
+    /// so the scorer can compare the read with them (<see cref="CandidateRelease.AlternativeTitles"/>). The calls run at the same
+    /// time, within <paramref name="budgetToken"/>. Nothing is asked when a candidate already scores at the matched threshold, for
+    /// a read of a book, a game or another kind, or for a candidate of another kind. A call that fails, runs out of time or is refused leaves
+    /// that candidate exactly as it was, and is logged by type only; it never fails the search or marks it as unanswered. Only
+    /// <paramref name="callerToken"/> cancelling escapes. Touches no database.
+    /// </summary>
+    public async Task<ProviderAnswers> WithAlternativeTitlesAsync(
+        ReadItem read, IReadOnlyList<ScoringProfile> profiles, ProviderAnswers answers, CancellationToken callerToken, CancellationToken budgetToken)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        ArgumentNullException.ThrowIfNull(profiles);
+        ArgumentNullException.ThrowIfNull(answers);
+
+        if (profiles.Count == 0 || read.Kind is not (null or WorkKind.Film or WorkKind.Tv) || string.IsNullOrWhiteSpace(read.Title) || budgetToken.IsCancellationRequested)
+        {
+            return answers;
+        }
+
+        var askable = answers.Found
+            .Where(release => release.Kind is WorkKind.Film or WorkKind.Tv && _providers.OfType<IAlternativeTitleProvider>().Any(p => p.HasAlternativeTitles(release)))
+            .ToList();
+        if (askable.Count == 0)
+        {
+            return answers;
+        }
+
+        // The caller may not know which profile the read will be scored with: the read counts as matched only when it is under every one
+        // it may get, and the candidates are ranked under the profile that likes them least.
+        var candidates = answers.Found.Select(release => release.ToCandidate()).ToList();
+        var (ranked, matchedScore) = profiles
+            .Select(profile => (Ranked: MatchScorer.Evaluate(read, candidates, profile).Ranked, profile.Thresholds.MatchedScore))
+            .MinBy(result => result.Ranked[0].Score - result.MatchedScore);
+        if (Math.Round(ranked[0].Score, 9) >= Math.Round(matchedScore, 9))
+        {
+            return answers;
+        }
+
+        var byKey = askable.ToDictionary(release => release.ToCandidate().Key, StringComparer.Ordinal);
+        var top = ranked
+            .Where(scored => byKey.ContainsKey(scored.Release.Key))
+            .Select(scored => byKey[scored.Release.Key])
+            .Where(release => Identify.TrimmedSpans.FindCarriesLeadingWords(read.Title, new Identify.TrimmedSpan(string.Empty, string.Empty), release.Title, []))
+            .Take(MaxAlternativeTitleAsks)
+            .ToList();
+        if (top.Count == 0)
+        {
+            return answers;
+        }
+
+        var asked = await Task.WhenAll(top.Select(release => AlternativeTitlesOfAsync(release, callerToken, budgetToken)));
+        var withTitles = top.Zip(asked).Where(pair => pair.Second is { Count: > 0 }).ToDictionary(pair => pair.First.ToCandidate().Key, pair => pair.Second!, StringComparer.Ordinal);
+        if (withTitles.Count == 0)
+        {
+            return answers;
+        }
+
+        var steps = answers.Steps.Append(new TraceStep("alternative_titles", $"{withTitles.Count} of {top.Count} asked", 0)).ToList();
+        return answers with
+        {
+            Found = [.. answers.Found.Select(release => withTitles.TryGetValue(release.ToCandidate().Key, out var titles) ? release with { AlternativeTitles = titles } : release)],
+            Steps = steps,
+        };
+    }
+
+    private async Task<IReadOnlyList<string>?> AlternativeTitlesOfAsync(ProviderRelease release, CancellationToken callerToken, CancellationToken budgetToken)
+    {
+        var provider = _providers.OfType<IAlternativeTitleProvider>().First(p => p.HasAlternativeTitles(release));
+        try
+        {
+            return await provider.AlternativeTitlesAsync(release, budgetToken);
+        }
+        catch (OperationCanceledException) when (callerToken.IsCancellationRequested)
+        {
+            throw;
+        }
+#pragma warning disable CA1031 // An optional extra call: whatever goes wrong with it leaves the candidates as they were.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            logger.LogWarning("Provider {Provider} failed ({Failure}) when asked for alternative titles.", provider.Name, exception.GetType().Name);
+            return null;
+        }
     }
 
     /// <summary>A found title at least this similar to the query's is close: the Ambiguous line of the default thresholds.</summary>
