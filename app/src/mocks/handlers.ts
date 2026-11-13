@@ -16,6 +16,7 @@ import { handlers as membersHandlers } from './members';
 import { handlers as scanHandlers } from './identify'; // the barcode handlers plus the picture ones
 import { handlers as scanReviewHandlers } from './scan-review';
 import { handlers as scanPhotoHandlers } from './scan-photo';
+import { handlers as readShelfHandlers } from './read-shelf';
 
 const problem = (status: number, title: string, errors?: Record<string, string[]>) =>
   HttpResponse.json(
@@ -26,7 +27,7 @@ const problem = (status: number, title: string, errors?: Record<string, string[]
 const base = '*/api/v1/libraries/:libraryId/locations';
 
 export const handlers = [
-  ...onboardingHandlers, ...meHandlers, ...membersHandlers, ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...ownershipHandlers, ...authHandlers, ...scanReviewHandlers, ...scanPhotoHandlers, ...scanHandlers, ...evalsHandlers,
+  ...onboardingHandlers, ...meHandlers, ...membersHandlers, ...bulkHandlers, ...itemsHandlers, ...catalogHandlers, ...librariesHandlers, ...ownershipHandlers, ...authHandlers, ...scanReviewHandlers, ...scanPhotoHandlers, ...readShelfHandlers, ...scanHandlers, ...evalsHandlers,
   http.get('*/api/v1/me', () =>
     mockAccount.signedIn ? HttpResponse.json(mockMe()) : problem(401, 'Unauthorized'),
   ),

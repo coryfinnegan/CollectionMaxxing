@@ -28,6 +28,31 @@ function setup(responses: (ConfigFetchResult | Error)[], storage = new MemoryKey
 }
 
 describe('RecognitionConfigStore', () => {
+  it('says the server can read shelves only when its config says so, and an older server (no field) cannot', async () => {
+    expect(setup([]).store.shelfReader()).toBe(false); // nothing fetched yet
+    const on = setup([{ status: 'ok', body: { ...v2, shelfReader: true } }]);
+    await on.store.refresh();
+    expect(on.store.shelfReader()).toBe(true);
+    const off = setup([{ status: 'ok', body: { ...v2, shelfReader: false } }]);
+    await off.store.refresh();
+    expect(off.store.shelfReader()).toBe(false);
+    const older = setup([{ status: 'ok', body: v2 }]);
+    await older.store.refresh();
+    expect(older.store.shelfReader()).toBe(false);
+    const odd = setup([{ status: 'ok', body: { ...v2, shelfReader: 'yes' } }]);
+    await odd.store.refresh();
+    expect(odd.store.shelfReader()).toBe(false);
+  });
+
+  it('remembers that the server can read shelves after the app restarts, and forgets it when a later config turns it off', async () => {
+    const storage = new MemoryKeyValueStore();
+    await setup([{ status: 'ok', body: { ...v2, shelfReader: true } }], storage).store.refresh();
+    const again = setup([{ status: 'ok', body: { ...v2, shelfReader: false } }], storage);
+    expect(again.store.shelfReader()).toBe(true);
+    await again.store.refresh();
+    expect(again.store.shelfReader()).toBe(false);
+  });
+
   it('takes the fingerprint match distance from the server, and keeps the built-in one when an older server sends none', async () => {
     const tuned = setup([{ status: 'ok', body: { ...v2, fingerprints: { maxDistance: 0.2 } } }]);
     await tuned.store.refresh();

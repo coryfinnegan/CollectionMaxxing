@@ -14,6 +14,7 @@ import type { ArtDeps } from './artStep';
 import type { CoverVerifyDeps } from './coverVerify';
 import { restPipelineApi } from './pipelineApi';
 import { createPipelineStore, setPipelineStore } from './pipelineStore';
+import type { ShelfUploadDeps } from './shelfUpgrade';
 import { MemorySnapFiles, setSnapStore, SnapStore } from './snapStore';
 import type { CropMaker, PipelineDeps, Reader } from './SnapPipeline';
 
@@ -172,6 +173,18 @@ export class FakeCoverFiles {
       this.discarded.push(uri);
       await this.fs?.remove(uri);
     },
+  };
+}
+
+/** The shelf upload's file pieces (the same as a cover's) and what the server's config says: set `enabled` false for a server with no reader. */
+export class FakeShelfFiles extends FakeCoverFiles {
+  enabled = true;
+  /** How many times the config was fetched again (after the server said it had no reader). */
+  refreshes = 0;
+  readonly shelf: ShelfUploadDeps = {
+    ...this.deps,
+    enabled: () => this.enabled,
+    refresh: async () => void (this.refreshes += 1),
   };
 }
 

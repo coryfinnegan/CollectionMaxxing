@@ -19,7 +19,7 @@ import { commitDraft, discardCandidates, loadIntoCards, patchCandidate, searchCa
 import { canCommit, groupCandidates, groupOf, reviewable } from './grouping';
 import { flushProvisionalOutbox, keepAsUnverified } from './provisionals';
 import { contextWorkIdsFor } from './searchContext';
-import { skippedRows } from './skipped';
+import { skippedCandidates, skippedRows } from './skipped';
 import { addCount, commitBody, committable, emptyDraft, isChecked, picked, selectedPick, type Draft, type LineOverride, type ReviewStatus } from './plan';
 
 /** How long the "Added 11 items" toast offers Undo (docs/06 M5). */
@@ -72,6 +72,13 @@ export function useReview({
   const dismissCelebration = useCallback(() => setCelebration(null), []);
 
   const list = useMemo(() => reviewable(Object.values(byId)), [byId]);
+  // A row the server skips while Review is open (its own read of a shelf photo arrives late, #809) is kept by the cards store as
+  // skipped (one rule for every path, see cardsStore): it joins the skipped rows here, with its reason and Put back.
+  const serverSkipped = useCardsStore((s) => s.skipped);
+  const skippedList = useMemo(() => {
+    const known = new Set(skipped.map((c) => c.id));
+    return skippedRows([...skipped, ...skippedCandidates(Object.values(serverSkipped)).filter((c) => !known.has(c.id))]);
+  }, [skipped, serverSkipped]);
   const groups = useMemo(() => groupCandidates(list), [list]);
   const count = addCount(list, draft);
 
@@ -308,7 +315,7 @@ export function useReview({
     setAddTo: (locationId: string | null) => update({ addTo: locationId }),
     setStatus: (status: ReviewStatus) => update({ status }),
     override,
-    skipped: useMemo(() => skippedRows(skipped), [skipped]),
+    skipped: skippedList,
     skip: (c: CandidateDto) =>
       onRow(c.id, async () => {
         await skipCandidate(requireSession(), c.id);

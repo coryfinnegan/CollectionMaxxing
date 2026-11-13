@@ -33,6 +33,18 @@ type CardsState = {
    * `localId` replaces its local card the moment it arrives.
    */
   local: Record<string, CandidateDto>;
+  /**
+   * Rows the server skipped (a repeat, a fragment, "the server read this shelf differently"...). The one rule for every way such a
+   * row arrives (an `identify` or `:read-shelf` answer, the event stream, a snapshot, in any order, any number of times): the row has
+   * no card (Review does not list it as a row to add) and is kept here, so its receipt line stays settled and Review's Skipped section
+   * shows it with its reason and Put back. A later non-rejected copy (Put back) takes it out again.
+   */
+  skipped: Record<string, CandidateDto>;
+  /**
+   * Moves server-skipped rows out of the cards into `skipped`. A row with no card and not already skipped is ignored unless
+   * `needCard` is false (an `identify` answer, which is where a snap's rows first arrive). An older copy never overwrites a newer one.
+   */
+  skip(rows: readonly CandidateDto[], options?: { needCard?: boolean }): void;
   /** Merges candidates. Returns the ones that deserve a haptic now (first time they leave pending). */
   merge(incoming: Partial<CandidateDto>[], options?: { announce?: boolean }): { id: string; event: CardEvent }[];
   setDecision(id: string, candidate: CandidateDto): void;
@@ -53,8 +65,25 @@ export const useCardsStore = create<CardsState>((set, get) => ({
   order: {},
   announced: {},
   local: {},
+  skipped: {},
+  skip(rows, { needCard = true } = {}) {
+    const byId = { ...get().byId };
+    const skipped = { ...get().skipped };
+    let changed = false;
+    for (const row of rows) {
+      const known = byId[row.id] ?? skipped[row.id];
+      if (!known && needCard) continue; // nothing of it is shown: it never was, or the person removed it
+      const incomingOrder = changeOrder(row);
+      if (known && incomingOrder !== undefined && incomingOrder < (changeOrder(known) ?? 0)) continue; // a replayed older copy
+      delete byId[row.id];
+      skipped[row.id] = { ...skipped[row.id], ...row };
+      changed = true;
+    }
+    if (changed) set({ byId, skipped });
+  },
   merge(incoming, { announce = true } = {}) {
     const byId = { ...get().byId };
+    const skipped = { ...get().skipped };
     const order = { ...get().order };
     const announced = { ...get().announced };
     const fresh: { id: string; event: CardEvent }[] = [];
@@ -62,6 +91,13 @@ export const useCardsStore = create<CardsState>((set, get) => ({
     for (const part of ascending) {
       if (!part.id) continue;
       const current = byId[part.id];
+      const wasSkipped = skipped[part.id];
+      if (wasSkipped) {
+        // Skipped: only a newer copy that is not rejected (Put back) brings it back; a replayed older copy stays out.
+        const later = changeOrder(part);
+        if (part.decision === 'rejected' || (later !== undefined && later < (changeOrder(wasSkipped) ?? 0))) continue;
+        delete skipped[part.id];
+      }
       // An older copy of a candidate (a replayed event) never overwrites a newer one.
       const incomingOrder = changeOrder(part);
       if (current && incomingOrder !== undefined && incomingOrder < (changeOrder(current) ?? 0)) continue;
@@ -77,7 +113,7 @@ export const useCardsStore = create<CardsState>((set, get) => ({
     // The server has answered for these items: its card replaces the phone's own.
     const answered = new Set(ascending.map((part) => byId[part.id!]?.localId).filter((id): id is string => !!id));
     const local = Object.fromEntries(Object.entries(get().local).filter(([, card]) => !answered.has(card.localId ?? '')));
-    set({ byId, order, announced, local });
+    set({ byId, order, announced, local, skipped });
     return fresh;
   },
   showLocal(card) {
@@ -95,8 +131,8 @@ export const useCardsStore = create<CardsState>((set, get) => ({
     const { [id]: _removed, ...rest } = get().byId;
     set({ byId: rest });
   },
-  endSession: () => set({ byId: {} }),
-  reset: () => set({ byId: {}, order: {}, announced: {}, local: {} }),
+  endSession: () => set({ byId: {}, skipped: {} }),
+  reset: () => set({ byId: {}, order: {}, announced: {}, local: {}, skipped: {} }),
 }));
 
 export const LOCAL_PREFIX = 'local:';

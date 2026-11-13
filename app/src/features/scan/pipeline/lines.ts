@@ -25,7 +25,7 @@ export function cardFor(item: PicItem, cards: CandidateDto[]): CandidateDto | un
 
 export function statusOf(snap: PicSnap, card: CandidateDto | undefined, online: boolean): PictureStatus {
   // The phone's own card is a guess from a local match: the lookup still waits (Queued offline) until the server answers.
-  if (card && !isLocalCard(card)) return card.resolution === 'pending' ? 'identifying' : 'done';
+  if (card && !isLocalCard(card)) return card.resolution === 'pending' && card.decision !== 'rejected' ? 'identifying' : 'done'; // skipped is settled
   if (snap.phase === 'reading' || snap.sent) return 'identifying';
   return online ? 'identifying' : 'queued';
 }
