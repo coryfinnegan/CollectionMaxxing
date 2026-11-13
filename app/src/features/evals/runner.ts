@@ -13,8 +13,7 @@ import { modelSchemaFor } from '@/features/scan/recognition/modelSchema';
 import { type EngineName, type OcrReading, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
 import type { ShotKind } from '@/features/scan/shotkind/shotKind';
 import type { KeyValueStore } from '@/features/scan/tray/trayStore';
-import type { RecognizeTextOptions, Rect, TextLine, ThermalState } from '@/native/cm-vision';
-import { gridRegions } from '../../../modules/cm-vision/src/regions'; // only the geometry: the native entry is loaded on the phone alone
+import type { ThermalState } from '@/native/cm-vision';
 import { RUN_GONE_CODES, type EvalApi } from './api';
 import { EvalOutbox, type PendingPhoto } from './outbox';
 
@@ -88,8 +87,6 @@ export interface EvalRunnerDeps {
   config: { refresh(): Promise<unknown>; current(): RecognitionSettings };
   vision: {
     deviceStatus(): Promise<{ thermalState: ThermalState; osVersion: string; buildNumber?: string }>;
-    /** Reads the text of a shelf picture again for the probes (`OCR_PROBES`), after the rows are read. */
-    recognizeText(imageUri: string, options?: RecognizeTextOptions): Promise<TextLine[]>;
   };
   device: { model: string; appVersion: string };
   /** Holds the screen awake. The runner holds it only while it is reading in the foreground: never paused, waiting for the PC or while the PC scores. */
@@ -211,80 +208,6 @@ export function ocrRecord(ocr: OcrReading | undefined): Pick<EvalPhotoResult, 'o
       height: unit(l.box.height),
     })),
     ocrPieces: ocr.pieces.map((piece) => piece.filter((index) => index >= 0 && index < lines.length)).filter((piece) => piece.length > 0),
-  };
-}
-
-/** What the server accepts of the probes: at most this many, each with at most this many lines (text up to `MAX_OCR_TEXT`) and a time up to this many milliseconds. */
-export const MAX_OCR_PROBES = 4;
-export const MAX_PROBE_LINES = 1500;
-export const MAX_PROBE_MS = 3_600_000;
-
-type OcrProbe = NonNullable<EvalPhotoResult['ocrProbes']>[number];
-
-/**
- * The extra reads of a shelf picture, none of them the scanner's own. They are read once, after the timed rows, and only the record reads them:
- * the PC keeps them so an OCR setting can be tried on real pictures later without the phone, and never scores them.
- */
-export const OCR_PROBES: readonly {
-  name: string;
-  options: RecognizeTextOptions;
-  /** Read on the picture as it was downloaded (downloaded again, for the scanner's scaled copy is all that is left) instead of the scaled still. */
-  original?: true;
-  /** Read in the crops of this photo's Vision items (`spineRegions`) instead of whole: left out when there are none. */
-  spines?: true;
-}[] = [
-  // The scanner's three passes and the upside-down one, raw (nothing dropped or merged): what each pass reads, and what the confidence floor drops.
-  { name: 'production', options: { orientations: [0, 90, 270, 180] } },
-  // The same four orientations on the original: what the scaling to 2576 px costs.
-  { name: 'full', options: { orientations: [0, 90, 270, 180] }, original: true },
-  // Each spine the Vision read found, on its own crop of the original, with Vision correcting what it read against a dictionary.
-  { name: 'fullSpines0', options: { orientations: [0], languageCorrection: true }, original: true, spines: true },
-  // Four tiles that overlap by a tenth, each read on its own on the original: small print.
-  { name: 'fullTiles0', options: { orientations: [0], regions: gridRegions(2, 2, 0.1) }, original: true },
-];
-
-/** How far a spine's crop grows past its box, as a share of the box's short side, on every side. */
-export const SPINE_CROP_PAD = 0.25;
-/** A crop narrower or shorter than this (of the picture) is too small to read and is left out. */
-export const SPINE_CROP_MIN_SIDE = 0.002;
-
-/**
- * The crops that read each spine on its own: every box grown by `SPINE_CROP_PAD` of its short side, clamped inside the picture. A crop under
- * `SPINE_CROP_MIN_SIDE` on a side is dropped and two equal crops count once. The order is kept.
- */
-export function spineRegions(boxes: readonly Rect[]): Rect[] {
-  const seen = new Set<string>();
-  const regions: Rect[] = [];
-  for (const box of boxes) {
-    const pad = SPINE_CROP_PAD * Math.min(box.width, box.height);
-    const left = Math.max(0, box.x - pad);
-    const top = Math.max(0, box.y - pad);
-    const right = Math.min(1, box.x + box.width + pad);
-    const bottom = Math.min(1, box.y + box.height + pad);
-    const region = { x: left, y: top, width: right - left, height: bottom - top };
-    if (!(region.width >= SPINE_CROP_MIN_SIDE) || !(region.height >= SPINE_CROP_MIN_SIDE)) continue;
-    const key = `${region.x},${region.y},${region.width},${region.height}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    regions.push(region);
-  }
-  return regions;
-}
-
-/** One probe shaped for the upload, cut to the PC's limits (a box or confidence a hair outside 0 to 1 is pulled in) instead of losing the photo. */
-export function probeRecord(name: string, ms: number, lines: TextLine[]): OcrProbe {
-  return {
-    name,
-    ms: Math.min(MAX_PROBE_MS, Math.max(0, Math.round(ms))),
-    lines: lines.slice(0, MAX_PROBE_LINES).map((l) => ({
-      text: l.text.slice(0, MAX_OCR_TEXT),
-      confidence: unit(l.confidence),
-      pass: l.pass ?? 0,
-      x: unit(l.box.x),
-      y: unit(l.box.y),
-      width: unit(l.box.width),
-      height: unit(l.box.height),
-    })),
   };
 }
 
@@ -711,59 +634,10 @@ export class EvalRunner {
         if (this.epoch !== epoch) return;
       }
       const results = ENGINES.map(({ engine }) => read.get(engine) as EvalPhotoResult);
-      // The probes come last, outside every row's timing, and only for a shelf. The scanner's own read is already done and recorded.
-      if (shotKind === 'shelf_segment') {
-        const boxes = (visionReading?.items ?? []).flatMap((item) => (item.box ? [item.box] : []));
-        const probes = await this.probe(photo.id, still, epoch, boxes);
-        if (this.epoch !== epoch) return;
-        const vision = results.find((r) => r.engine === 'vision_pipeline');
-        if (vision && probes.length > 0) vision.ocrProbes = probes;
-      }
       this.keep({ photoId: photo.id, results });
     } finally {
       await discardPicture(still.uri);
     }
-  }
-
-  /**
-   * Reads the picture's text once more for each of `OCR_PROBES` (the crop probes in the crops of `boxes`, the Vision read's item boxes), one after another, and keeps each with the time it took.
-   * The probes on the original read a second download of the photo, made once and only when one needs it, and deleted when the probes are done. A download that fails leaves those probes out.
-   * A probe that throws is left out. The owner's stop and the app leaving end the list where it is (the photo is then kept with what was read, or read again, as it is for a row).
-   */
-  private async probe(photoId: string, still: Still, epoch: number, boxes: readonly Rect[]): Promise<OcrProbe[]> {
-    const probes: OcrProbe[] = [];
-    const crops = spineRegions(boxes);
-    let original: string | undefined;
-    let originalFailed = false;
-    try {
-      for (const { name, options: base, spines, original: onOriginal } of OCR_PROBES) {
-        if (this.stopRequested || this.epoch !== epoch) break;
-        // A crop probe with no crops is left out: `regions: []` would read the whole picture under the wrong name.
-        if (spines && crops.length === 0) continue;
-        if (onOriginal && originalFailed) continue;
-        if (onOriginal && original === undefined) {
-          try {
-            original = trackPicture(await this.withPc(() => this.deps.files.download(photoId), 'running', { stoppable: true }));
-          } catch (error) {
-            if (error instanceof StopRequestedError || this.epoch !== epoch) break;
-            originalFailed = true; // nothing but the record reads it: the other probes and the photo's rows stand
-            continue;
-          }
-          if (this.stopRequested || this.epoch !== epoch) break; // a stop or the app leaving during a download that succeeded
-        }
-        const options = spines ? { ...base, regions: crops } : base;
-        const started = this.now();
-        try {
-          const lines = await this.deps.vision.recognizeText(onOriginal ? (original as string) : still.uri, options);
-          probes.push(probeRecord(name, this.now() - started, lines));
-        } catch {
-          // Nothing but the record reads a probe: it is left out, and the photo's rows are as they were.
-        }
-      }
-    } finally {
-      if (original !== undefined) await discardPicture(original);
-    }
-    return probes;
   }
 
   private async readWith(
