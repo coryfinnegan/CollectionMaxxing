@@ -116,7 +116,7 @@ export function mergeSnapshotIntoCards(candidates: readonly CandidateDto[]): voi
   pruneDiscarded(candidates);
   const cards = useCardsStore.getState();
   const kept = withoutDiscarded(candidates);
-  for (const c of kept) if (c.decision === 'rejected') cards.remove(c.id);
+  cards.skip(kept.filter((c) => c.decision === 'rejected'));
   cards.merge(
     kept.filter((c) => c.decision !== 'rejected'),
     { announce: false },
@@ -164,8 +164,8 @@ export function routeSessionMessage(sessionId: string, message: SseMessage, isCu
     // candidate has no card — Review filters it, and the scanner never drew one for it).
     if (candidate.id && isDiscarded(candidate.id)) return;
     if (candidate.decision === 'rejected') {
-      // The server skipped a candidate that already has a card (a pending read it could not resolve): the card leaves.
-      if (candidate.id) useCardsStore.getState().remove(candidate.id);
+      // The server skipped a candidate that has a card: it leaves the cards for the skipped rows (the one rule, see cardsStore).
+      if (candidate.id) useCardsStore.getState().skip([candidate as CandidateDto]);
       return;
     }
     announce(useCardsStore.getState().merge([candidate]), sessionId);

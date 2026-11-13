@@ -23,6 +23,7 @@ import { compareArtwork, type ArtDeps, type ItemPicture } from './artStep';
 import { coverCaptureOf, verifyCoverPhoto, type CoverVerifyDeps } from './coverVerify';
 import { identifyRequestOf, picItemOf } from './payload';
 import type { PipelineApi } from './pipelineApi';
+import { ShelfUpgrades, type ShelfUploadDeps } from './shelfUpgrade';
 import type { PicItem, PicSnap, PipelineStore } from './pipelineStore';
 import type { SnapStore } from './snapStore';
 
@@ -48,6 +49,11 @@ export interface PipelineDeps {
   coverVerify: CoverVerifyDeps;
   /** CAM-3e: a release id when this crop is something the person has confirmed before. Leave it out and sending never waits for a crop. */
   localMatch?: (crop: { uri: string }) => Promise<string | undefined>;
+  /**
+   * #809: sends a shelf snap's still to the server's shelf reader once `identify` has answered, while the server says it can read
+   * shelves. Leave it out and nothing is ever sent (an older server, or a build without it).
+   */
+  shelf?: ShelfUploadDeps;
   newId?: () => string;
   now?: () => number;
 }
@@ -108,7 +114,16 @@ export class SnapPipeline {
   private onNotice: (message: string | null) => void = () => undefined;
   private noticed = false;
 
-  constructor(private readonly deps: PipelineDeps) {}
+  private readonly upgrades: ShelfUpgrades;
+  private unsubscribeTray: (() => void) | undefined;
+
+  constructor(private readonly deps: PipelineDeps) {
+    this.upgrades = new ShelfUpgrades(
+      deps,
+      () => this.now(),
+      (sessionId) => this.isCurrent(sessionId),
+    );
+  }
 
   /** A barcode that can be read right now wins over a picture. */
   setBarcodeProbe(probe: () => boolean) {
@@ -135,9 +150,13 @@ export class SnapPipeline {
 
   /** Starts watching for close calls and picks up snaps a killed app left half-read. */
   start() {
-    this.stop();
+    // Not stop(): that would give up the shelf uploads a killed app left waiting, which this start picks up.
+    this.unsubscribe?.();
+    this.unsubscribeTray?.();
     this.stopped = false;
     this.unsubscribe = useCardsStore.subscribe(() => this.scanForCloseCalls());
+    // Discard and Add end the scan this pipeline is sending shelf photos for: an upload in flight stops with it.
+    this.unsubscribeTray = this.deps.tray.subscribe(() => this.upgrades.recheck());
     this.scanForCloseCalls();
     // Every snap still here has unresolved work: pin it before trimming, so retention never takes it.
     for (const snap of this.deps.store.getState().snaps) {
@@ -145,12 +164,16 @@ export class SnapPipeline {
     }
     void this.deps.snaps.prune();
     this.resume();
+    this.upgrades.begin();
   }
 
   stop() {
     this.stopped = true;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    this.unsubscribeTray?.();
+    this.unsubscribeTray = undefined;
+    this.upgrades.stop(); // leaving the scanner or switching library: an upload in flight is aborted, nothing waits
   }
 
   /** Whether an answer for `sessionId` still belongs on screen: the scanner is still open and the scan was not discarded or replaced. */
@@ -253,6 +276,7 @@ export class SnapPipeline {
   private async drop(snapId: string) {
     this.boundDone.delete(snapId); // a dropped bound cover answers nothing; the binding stays for the next shutter
     this.deps.store.getState().removeSnap(snapId);
+    this.upgrades.recheck();
     useCardsStore.getState().dropLocal(snapId);
     this.deps.snaps.unpin(snapId);
     await Promise.all([this.deps.snaps.forget(snapId), discardPicturesOf(snapId)]);
@@ -295,6 +319,7 @@ export class SnapPipeline {
 
   /** Sends every read snap that has not been sent, one `identify` per snap, oldest first. */
   flush(): Promise<void> {
+    this.upgrades.run(); // a shelf photo waiting for the connection or for a busy server is tried again with every flush
     if (this.now() < this.holdUntil) return Promise.resolve(); // the server asked us to slow down (429)
     this.flushing ??= this.sendWaiting().finally(() => {
       this.flushing = undefined;
@@ -359,8 +384,12 @@ export class SnapPipeline {
         // The answer was asked for a scan that may be over by now (a library switch, a Discard): it goes nowhere. The session
         // snapshot brings the cards back if the person returns to that scan.
         if (!this.isCurrent(sessionId)) return;
-        announce(useCardsStore.getState().merge(candidates));
+        // Rows the server skipped already (a repeat, a fragment) follow the one rule for skipped rows: no card, kept as skipped.
+        const cards = useCardsStore.getState();
+        announce(cards.merge(candidates.filter((c) => c.decision !== 'rejected')));
+        cards.skip(candidates.filter((c) => c.decision === 'rejected'), { needCard: false });
         tray.getState().setOnline(true);
+        this.upgrades.consider(snap.snapId); // Apple's read is on the screen; the server's read follows, if it has one
         this.finishBound(snap.snapId); // the row is upgraded now; a bound screen leaves
       } catch (error) {
         const status = error instanceof ApiError ? error.status : undefined;
@@ -504,6 +533,7 @@ export class SnapPipeline {
     const { store, tray } = this.deps;
     const before = store.getState().snaps.map((s) => s.snapId);
     store.getState().sweep(tray.getState().sessionId, this.deps.libraryId);
+    this.upgrades.recheck(); // the scan is over: a shelf photo still on its way is aborted
     const after = new Set(store.getState().snaps.map((s) => s.snapId));
     for (const snapId of before) {
       if (after.has(snapId)) continue;

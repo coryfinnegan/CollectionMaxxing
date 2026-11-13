@@ -1,79 +1,68 @@
 import { PRIVACY_NOTE } from './privacyNote';
 
 const text = PRIVACY_NOTE.join(' ');
+const para = (re: RegExp) => PRIVACY_NOTE.find((p) => re.test(p))!;
 
 describe('privacy note', () => {
-  it('says covers are read on the phone, by Apple’s on-device model, and nothing goes to an AI service', () => {
-    expect(text).toMatch(/read on your iPhone/i);
-    expect(text).toMatch(/on-device model/i);
-    expect(text).toMatch(/nothing goes to an AI service/i);
+  it('says covers are read on the phone, with Apple’s on-device tools, and nothing goes to an outside AI service', () => {
+    expect(PRIVACY_NOTE[0]).toBe('Covers are read on your iPhone with Apple’s on-device tools. Nothing goes to an outside AI service.');
   });
 
   it('reads right on the web too: it never says "this iPhone"', () => {
     expect(text).not.toMatch(/this iPhone/i);
   });
 
-  it('no longer promises that photos never leave the phone, which a close call breaks', () => {
+  it('never calls the host "your PC": a library may be hosted by someone else', () => {
+    expect(text).not.toMatch(/\bPC\b/);
+    expect(text).toMatch(/the server that hosts your library/i);
+  });
+
+  it('counts four cases a photo goes to the server', () => {
+    expect(text).toMatch(/in four cases/i);
+    expect(text).not.toMatch(/three cases|two cases/i);
+  });
+
+  it('says a shelf photo is sent smaller with its hidden details removed, read by a free model on the server, and thrown away, never kept', () => {
+    const shelf = para(/shelf photo/i);
+    expect(shelf).toMatch(/When it can read shelves, a shelf photo is sent smaller, with its hidden photo details removed/);
+    expect(shelf).toMatch(/free model running on that server reads the spines/i);
+    expect(shelf).toMatch(/thrown away, never kept/i);
+  });
+
+  it('no longer promises that photos never leave the phone', () => {
     expect(text).not.toMatch(/photos stay on your iPhone/i);
     expect(text).not.toMatch(/never leave/i);
   });
 
-  it('says what a close call sends: the scan photo and an outline of the cover, to your own PC', () => {
-    expect(text).toMatch(/close call/i);
-    expect(text).toMatch(/your scan photo and an outline of the cover/i);
-    expect(text).toMatch(/your own PC/i);
-  });
-
-  it('says that photo is only checked and thrown away, never kept', () => {
-    expect(text).toMatch(/checked, then thrown away/i);
-    expect(text).toMatch(/never kept/i);
-  });
-
-  it('counts three cases a photo goes to the PC: a close call, Use my photo, and a row kept as unverified', () => {
-    expect(text).toMatch(/in three cases/i);
-    expect(text).not.toMatch(/two cases/i);
-  });
-
-  it('says a cover photo is kept if you choose Use my photo, and no longer says that is the only way', () => {
-    expect(text).toMatch(/Use my photo/);
-    expect(text).not.toMatch(/only if you choose Use my photo/i);
-    expect(text).not.toMatch(/kept only/i);
-  });
-
-  it('says a row you keep as unverified keeps the photo of that one cover on the PC until you delete the row or link it to an item', () => {
-    expect(text).toMatch(/a row you keep as unverified/i);
-    expect(text).toMatch(/photo of one cover/i);
-    expect(text).toMatch(/which your PC keeps/i);
-    expect(text).toMatch(/stays until you delete the row or link it to an item/i);
-  });
-
-  it('says adding a kept row to the library makes its photo the cover', () => {
-    expect(text).toMatch(/adding the row makes it the cover/i);
-  });
-
-  it('says every kept photo is private to the library and has its hidden details removed', () => {
-    expect(text).toMatch(/private to your library/i);
-    expect(text).toMatch(/hidden photo details removed/i);
-  });
-
-  it('keeps the close-call photo apart from the kept ones: the scan photo is never kept, the other two are', () => {
-    const closeCall = PRIVACY_NOTE.find((p) => /close call/i.test(p))!;
+  it('says what a close call sends: the scan photo and an outline of the cover, checked, thrown away, never kept', () => {
+    const closeCall = para(/close call/i);
+    expect(closeCall).toMatch(/your scan photo and an outline of the cover/i);
+    expect(closeCall).toMatch(/checked, then thrown away/i);
     expect(closeCall).toMatch(/never kept/i);
     expect(closeCall).not.toMatch(/Use my photo|unverified/i);
-    const kept = PRIVACY_NOTE.find((p) => /unverified/i.test(p))!;
+  });
+
+  it('says Use my photo and a row kept as unverified send the photo of one cover, which the server keeps, private to the library, details removed', () => {
+    const kept = para(/unverified/i);
     expect(kept).toMatch(/Use my photo/);
+    expect(kept).toMatch(/photo of one cover/i);
+    expect(kept).toMatch(/which the server keeps/i);
+    expect(kept).toMatch(/private to your library/i);
+    expect(kept).toMatch(/hidden photo details removed/i);
+    expect(kept).toMatch(/stays until you delete the row or link it to an item/i);
+    expect(kept).toMatch(/adding the row makes it the cover/i);
     expect(kept).not.toMatch(/never kept/i);
   });
 
-  it('says the PC keeps picture fingerprints, and that they are not the pictures', () => {
+  it('says the server keeps picture fingerprints, and that they are not the pictures', () => {
     expect(text).toMatch(/picture fingerprints/i);
     expect(text).toMatch(/not the pictures/i);
   });
 
   it('says catalog services get only barcodes and titles, never photos or the account', () => {
-    expect(text).toMatch(/only barcodes and titles/i);
+    expect(text).toMatch(/only barcodes and titles from that server/i);
     expect(text).toMatch(/never your photos or your account/i);
-    expect(text).not.toMatch(/never who you are/i); // they do see the PC's network address
+    expect(text).not.toMatch(/never who you are/i);
   });
 
   it('says there is no tracking or ads, and mentions export and deletion', () => {
@@ -92,7 +81,8 @@ describe('privacy note', () => {
     for (const paragraph of PRIVACY_NOTE) expect(paragraph).toMatch(/^[A-Z]/);
   });
 
-  it('stays short', () => {
-    expect(text.split(/\s+/).length).toBeLessThanOrEqual(175);
+  it('is seven paragraphs and stays short', () => {
+    expect(PRIVACY_NOTE).toHaveLength(7);
+    expect(text.split(/\s+/).length).toBeLessThanOrEqual(230);
   });
 });

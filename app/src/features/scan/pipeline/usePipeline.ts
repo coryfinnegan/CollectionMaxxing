@@ -110,7 +110,9 @@ export function usePipeline({
   const online = useTrayValue(tray, (s) => s.online, true);
   const byId = useCardsStore((s) => s.byId);
   const local = useCardsStore((s) => s.local);
-  const cards = useMemo(() => withLocalCards({ byId, local }), [byId, local]);
+  const skipped = useCardsStore((s) => s.skipped);
+  // A row the server skipped has no card but is settled: its receipt line must not fall back to "identifying".
+  const cards = useMemo(() => [...withLocalCards({ byId, local }), ...Object.values(skipped)], [byId, local, skipped]);
   // One store holds every library's snaps; only this scanner's own count here.
   const mine = useMemo(() => (deps ? snaps.filter((s) => s.libraryId === deps.libraryId) : snaps), [deps, snaps]);
   const lines = useMemo(() => pictureLines(mine, cards, online), [mine, cards, online]);

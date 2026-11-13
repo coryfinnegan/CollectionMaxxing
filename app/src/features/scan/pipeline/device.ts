@@ -10,6 +10,7 @@ import type { CoverVerifyDeps } from './coverVerify';
 import { restPipelineApi } from './pipelineApi';
 import { getPipelineStore } from './pipelineStore';
 import { localMatch } from './localMatch';
+import type { ShelfUploadDeps } from './shelfUpgrade';
 import { getSnapStore } from './snapStore';
 import type { CropMaker, PipelineDeps } from './SnapPipeline';
 
@@ -63,6 +64,13 @@ const deviceCoverVerify: CoverVerifyDeps = {
   discard: (uri) => discardPicture(uri),
 };
 
+/** #809: the shelf photo goes through the same file pieces as :verify-cover; the server's config says whether it can read shelves. */
+const deviceShelf: ShelfUploadDeps = {
+  ...deviceCoverVerify,
+  enabled: () => getRecognition().store.shelfReader(),
+  refresh: () => getRecognition().store.refresh(),
+};
+
 /** Built when the scanner opens. Everything native is loaded on first use. */
 export function createDevicePipelineDeps(libraryId: string): PipelineDeps {
   let art: ArtDeps | undefined;
@@ -75,6 +83,7 @@ export function createDevicePipelineDeps(libraryId: string): PipelineDeps {
     api: restPipelineApi,
     crops: deviceCrops,
     coverVerify: deviceCoverVerify,
+    shelf: deviceShelf,
     localMatch, // CAM-3e: items confirmed before are sent with their release
     art: {
       get vision() {

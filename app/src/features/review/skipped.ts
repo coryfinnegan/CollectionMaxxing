@@ -14,7 +14,9 @@ export const SKIP_REASON_COPY: Record<NonNullable<SkipReason> | 'person', string
   unfound_spine: 'Nothing in the catalog matched',
   owned: 'Already in your library',
   wishlist: 'On your wishlist',
-  server_did_not_see: 'A second look left it out', // the server's own read of the shelf (#814); #809 owns the final words
+  // The server's own read of the shelf (#814/#809). True for both rows it moves here: a repeat or fragment of a title it read,
+  // and a row only the iPhone's model read. It says what happened without claiming which side was right.
+  server_did_not_see: 'The server read this shelf differently',
   person: 'You skipped it',
 };
 
