@@ -6,13 +6,11 @@ import { evalsMock, type MockSendFailure } from '@/mocks/evals';
 import { server } from '@/mocks/server';
 import { setPictureFiles, trackedPictures } from '@/features/scan/pictureFiles';
 import type { Resizer } from '@/features/scan/autosnap/snapPhoto';
-import { failedRead, makeKit, scaledUriOf, uriOf, type KitOptions } from './evalsTestKit';
-import { gridRegions } from '../../../modules/cm-vision/src/regions'; // the native entry cannot load in tests
-import type { RecognizeTextOptions, Rect, TextLine } from '@/native/cm-vision';
+import { failedRead, makeKit, scaledUriOf, uriOf } from './evalsTestKit';
 import { line, modelItem, okRead, type Scene } from '@/features/scan/recognition/fakes';
 import { EngineSelector } from '@/features/scan/recognition/EngineSelector';
 import type { ReadItem } from '@/features/scan/recognition/types';
-import { MAX_OCR_PROBES, OCR_PROBES, PC_NOT_DOWNLOADING, SCORING_POLL_MS, sendWaitMs, spineRegions } from './runner';
+import { PC_NOT_DOWNLOADING, SCORING_POLL_MS, sendWaitMs } from './runner';
 
 interface Result {
   photoId: string;
@@ -460,7 +458,7 @@ describe('the eval runner', () => {
       const afterEach = kit.runner.subscribe(() => seen.push([...kit.deleted]));
       await kit.runner.start();
       afterEach();
-      expect(kit.deleted).toEqual(['photo-001', 'photo-001', 'photo-002', 'photo-002', 'photo-003'].map(uriOf)); // a shelf photo is downloaded twice
+      expect(kit.deleted).toEqual(['photo-001', 'photo-002', 'photo-003'].map(uriOf));
       expect(trackedPictures()).toEqual([]);
       // each file was gone before the next one was downloaded
       expect(seen.some((deleted) => deleted.length === 1)).toBe(true);
@@ -469,7 +467,7 @@ describe('the eval runner', () => {
     it('deletes the photo even when reading it throws, and continues with the next one', async () => {
       const kit = makeKit({ photos: 2, selectorThrows: true });
       await kit.runner.start();
-      expect(kit.deleted).toEqual(['photo-001', 'photo-001', 'photo-002'].map(uriOf)); // a shelf photo is downloaded twice
+      expect(kit.deleted).toEqual(['photo-001', 'photo-002'].map(uriOf));
       expect(trackedPictures()).toEqual([]);
       expect(kit.runner.getState().phase).toBe('scoring');
       expect(results().filter((r) => r.engine === 'apple_model').every((r) => r.outcome === 'error')).toBe(true);
@@ -498,9 +496,9 @@ describe('the eval runner', () => {
         await kit.runner.start();
 
         expect(asked).toEqual([{ uri: uriOf('photo-001'), width: 5712, height: 4284, orientation: 1, target: { width: 2576, height: 1932 } }]);
-        expect(pictureEveryTierRead(kit)).toEqual([scaledUriOf('photo-001'), uriOf('photo-001')]); // the full probes read the original, downloaded again
+        expect(pictureEveryTierRead(kit)).toEqual([scaledUriOf('photo-001')]); // only the scaled picture is read; the original is not downloaded again
         expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
-        expect(kit.deleted).toEqual([uriOf('photo-001'), uriOf('photo-001'), scaledUriOf('photo-001')]);
+        expect(kit.deleted).toEqual([uriOf('photo-001'), scaledUriOf('photo-001')]);
         expect(trackedPictures()).toEqual([]);
       });
 
@@ -512,7 +510,7 @@ describe('the eval runner', () => {
         expect(asked).toEqual([{ uri: uriOf('photo-001'), width: 2048, height: 1536, orientation: 1, target: null }]);
         expect(pictureEveryTierRead(kit)).toEqual([uriOf('photo-001')]);
         expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
-        expect(kit.deleted).toEqual([uriOf('photo-001'), uriOf('photo-001')]);
+        expect(kit.deleted).toEqual([uriOf('photo-001')]);
         expect(trackedPictures()).toEqual([]);
       });
 
@@ -521,7 +519,7 @@ describe('the eval runner', () => {
         const kit = makeKit({ photos: 2, size: { width: 5712, height: 4284 }, resize: scaling(asked) });
         await kit.runner.start();
 
-        expect(kit.deleted).toEqual([uriOf('photo-001'), uriOf('photo-001'), scaledUriOf('photo-001'), uriOf('photo-002'), scaledUriOf('photo-002')]);
+        expect(kit.deleted).toEqual([uriOf('photo-001'), scaledUriOf('photo-001'), uriOf('photo-002'), scaledUriOf('photo-002')]);
         expect(trackedPictures()).toEqual([]);
       });
 
@@ -673,517 +671,33 @@ describe('the eval runner', () => {
     });
   });
 
-  describe('the OCR probes of a shelf photo', () => {
-    interface ProbeLine {
-      text: string;
-      confidence: number;
-      pass: number;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    }
-    interface Probe {
-      name: string;
-      ms: number;
-      lines: ProbeLine[];
-    }
-    const probesOf = (photoId: string, engine = 'vision_pipeline') => (results().find((r) => r.photoId === photoId && r.engine === engine) as { ocrProbes?: Probe[] } | undefined)?.ocrProbes;
-
-    /** Which request a text read is: the scanner's own, or one of the four probes (`production` reads the scaled still, the others the original). */
-    const shapeOf = (options?: RecognizeTextOptions, imageUri = '') =>
-      options?.regions
-        ? JSON.stringify(options.regions) === JSON.stringify(gridRegions(2, 2, 0.1))
-          ? 'fullTiles0'
-          : 'fullSpines0'
-        : options?.orientations?.length === 4
-          ? imageUri.includes('-scaled')
-            ? 'production'
-            : 'full'
-          : 'scanner';
-    const PROBES = ['production', 'full', 'fullSpines0', 'fullTiles0'];
-    /** What each probe takes on the fake clock. The clock moves only while a probe reads, so any time a row counts for itself is a probe read inside it. */
-    const TOOK: Record<string, number> = { production: 410, full: 530, fullSpines0: 122, fullTiles0: 305 };
-    /** The default scene's two Vision items sit on these boxes; their crops are each box grown by a quarter of its short side. */
-    const SCENE_CROPS = spineRegions([
-      { x: 0.1, y: 0.1, width: 0.1, height: 0.5 },
-      { x: 0.5, y: 0.1, width: 0.1, height: 0.5 },
-    ]);
-    const FAST: TextLine = { text: 'TITLE OF PHOTO-001', confidence: 0.45, box: { x: 0.12, y: 0.1, width: 0.08, height: 0.4 }, pass: 0 };
-    const TILE: TextLine = { text: 'Other of', confidence: 0.8, box: { x: 0.5, y: 0.1, width: 0.1, height: 0.3 }, pass: 0, region: 1 };
-
-    /** A kit whose vision engine answers each probe shape with its own lines and takes its own time on a fake clock. */
-    function probeKit({ text: ownText, ...extra }: Partial<KitOptions> = {}) {
-      let clock = 1_700_000_000_000;
-      return makeKit({
-        photos: 1,
-        now: () => clock,
-        // The scanner's scaling: the scaled still is its own file, so the original (downloaded again for the full probes) can be told from it.
-        resize: async (photo, target) => ({ uri: photo.uri.replace('.jpg', '-scaled.jpg'), ...target! }),
-        text: (uri, options) => {
-          const shape = shapeOf(options, uri);
-          if (shape === 'scanner') return undefined;
-          clock += TOOK[shape];
-          const own = ownText?.(uri, options); // may throw, to fail the read, or stop the run
-          if (own) return own;
-          if (shape === 'fullSpines0') return [{ ...FAST, text: 'Title of photo-001', confidence: 0.99 }];
-          if (shape === 'fullTiles0') return [TILE];
-          return undefined; // production and full: the scene's own lines, each saying its pass
-        },
-        ...extra,
-      });
-    }
-
-    it('sends the four probes on the Vision row of a shelf photo, each with its own lines and time', async () => {
-      const kit = probeKit();
+  describe('what a shelf photo costs to read', () => {
+    it('reads a shelf photo without downloading the original again', async () => {
+      const kit = makeKit({ photos: 1 });
       await kit.runner.start();
 
-      const probes = probesOf('photo-001')!;
-      expect(probes.map((p) => p.name)).toEqual(PROBES);
-      expect(probes.map((p) => p.ms)).toEqual(PROBES.map((name) => TOOK[name]));
-      expect(probes[0].lines).toEqual([
-        { text: 'Title of photo-001', confidence: 0.9, pass: 0, x: 0.1, y: 0.1, width: 0.1, height: 0.5 },
-        { text: 'Other of photo-001', confidence: 0.9, pass: 0, x: 0.5, y: 0.1, width: 0.1, height: 0.5 },
-      ]);
-      expect(probes[1].lines).toEqual(probes[0].lines);
-      expect(probes[2].lines.map((l) => [l.text, l.confidence])).toEqual([['Title of photo-001', 0.99]]);
-      expect(probes[3].lines).toEqual([{ text: 'Other of', confidence: 0.8, pass: 0, x: 0.5, y: 0.1, width: 0.1, height: 0.3 }]);
-    });
-
-    it('asks for production as the scanner\'s own three passes and the upside-down one, and for each other probe by one option', async () => {
-      const kit = probeKit();
-      await kit.runner.start();
-
-      const asked = kit.vision.textCalls.filter((c) => shapeOf(c.options, c.imageUri) !== 'scanner');
-      expect(asked.map((c) => shapeOf(c.options, c.imageUri))).toEqual(PROBES);
-      expect(asked.map((c) => c.options)).toEqual([
-        { orientations: [0, 90, 270, 180] },
-        { orientations: [0, 90, 270, 180] },
-        { orientations: [0], languageCorrection: true, regions: SCENE_CROPS },
-        { orientations: [0], regions: gridRegions(2, 2, 0.1) },
-      ]);
-    });
-
-    it('reads the probes after both rows, so no row\'s latency or first item counts one', async () => {
-      const kit = probeKit();
-      await kit.runner.start();
-
-      const rows = results();
-      expect(rows.map((r) => r.engine)).toEqual(['apple_model', 'vision_pipeline']);
-      expect(rows.map((r) => r.latencyMs)).toEqual([0, 0]); // the clock moves only inside a probe
-      const calls = kit.vision.textCalls.map((c) => shapeOf(c.options, c.imageUri));
-      expect(calls.indexOf('production')).toBeGreaterThan(calls.lastIndexOf('scanner'));
-      expect(rows.every((r) => r.outcome === 'ok')).toBe(true);
-    });
-
-    it('reads production and the engines from the same scaled picture, and the full probes from the original, at the scanner\'s size', async () => {
-      const kit = probeKit({
-        size: { width: 5712, height: 4284 },
-        resize: async (photo, target) => ({ uri: photo.uri.replace('.jpg', '-scaled.jpg'), ...target! }),
-      });
-      await kit.runner.start();
-
-      const uris = (shape: string) => [...new Set(kit.vision.textCalls.filter((c) => shapeOf(c.options, c.imageUri) === shape).map((c) => c.imageUri))];
-      expect(uris('scanner')).toEqual([scaledUriOf('photo-001')]);
-      expect(uris('production')).toEqual([scaledUriOf('photo-001')]);
-      expect(['full', 'fullSpines0', 'fullTiles0'].map(uris)).toEqual([[uriOf('photo-001')], [uriOf('photo-001')], [uriOf('photo-001')]]);
-    });
-
-    it('asks for no more probes than the PC accepts, each with a name it accepts', () => {
-      expect(OCR_PROBES.map((p) => p.name)).toEqual(PROBES);
-      expect(OCR_PROBES.length).toBeLessThanOrEqual(MAX_OCR_PROBES);
-      expect(OCR_PROBES.every((p) => p.name.length > 0 && p.name.length <= 64)).toBe(true);
-    });
-
-    it('sends the probes on the Vision row only', async () => {
-      const kit = probeKit();
-      await kit.runner.start();
-
-      expect(probesOf('photo-001', 'apple_model')).toBeUndefined();
-    });
-
-    it('sends a single cover with no probes and does not read any', async () => {
-      const kit = probeKit({ photos: 2 }); // photo-001 is a shelf, photo-002 a single
-      await kit.runner.start();
-
-      expect(probesOf('photo-001')).toHaveLength(4);
-      expect(probesOf('photo-002')).toBeUndefined();
-      const onCover = kit.vision.textCalls.filter((c) => c.imageUri === scaledUriOf('photo-002'));
-      expect(onCover.length).toBeGreaterThan(0);
-      expect(onCover.every((c) => shapeOf(c.options, c.imageUri) === 'scanner')).toBe(true);
-    });
-
-    it('leaves a probe that fails out and sends the photo and its rows as they were', async () => {
-      const kit = probeKit({
-        text: (uri, options) => {
-          if (shapeOf(options, uri) === 'fullSpines0') throw new Error('Vision gave up');
-          return undefined;
-        },
-      });
-      await kit.runner.start();
-
-      expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'full', 'fullTiles0']);
-      expect(sentIds()).toEqual(['photo-001']);
-      expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
-      expect(results().map((r) => r.items.length)).toEqual([2, 2]);
-    });
-
-    it('sends no probes at all when every one of them fails', async () => {
-      const kit = probeKit({
-        text: (uri, options) => {
-          if (shapeOf(options, uri) !== 'scanner') throw new Error('Vision gave up');
-          return undefined;
-        },
-      });
-      await kit.runner.start();
-
-      expect(sentIds()).toEqual(['photo-001']);
-      expect(results()[1]).not.toHaveProperty('ocrProbes');
-      expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
-    });
-
-    it('cuts a probe to what the PC accepts: 1500 lines, text up to 200 characters, boxes and confidence from 0 to 1', async () => {
-      const long: TextLine = { text: 'x'.repeat(300), confidence: 1.0000001, box: { x: -0.000001, y: 1.002, width: 1.01, height: 0.5 }, pass: 180 };
-      const kit = probeKit({ text: (uri, options) => (shapeOf(options, uri) === 'fullSpines0' ? Array.from({ length: 1600 }, () => long) : undefined) });
-      await kit.runner.start();
-
-      const fast = probesOf('photo-001')!.find((p) => p.name === 'fullSpines0')!;
-      expect(fast.lines).toHaveLength(1500);
-      expect(fast.lines[0]).toEqual({ text: 'x'.repeat(200), confidence: 1, pass: 180, x: 0, y: 1, width: 1, height: 0.5 });
-    });
-
-    it('keeps the photo, with the probes read so far, when the owner stops during them', async () => {
-      const kit: ReturnType<typeof makeKit> = probeKit({
-        text: (uri, options) => {
-          if (shapeOf(options, uri) === 'full') kit.runner.stop();
-          return undefined;
-        },
-      });
-      await kit.runner.start();
-
-      expect(sentIds()).toEqual(['photo-001']);
-      expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'full']);
-    });
-
-    it('reads a photo again, probes and all, when the app went to the background during a probe, and records the first read nowhere', async () => {
-      let left = false;
-      const kit: ReturnType<typeof makeKit> = probeKit({
-        text: (uri, options) => {
-          if (shapeOf(options, uri) === 'full' && !left) {
-            left = true;
-            kit.app.go('background');
-          }
-          return undefined;
-        },
-      });
-
-      const finished = kit.runner.start();
-      await waitFor(() => kit.runner.getState().phase === 'paused');
-      expect(evalsMock.sent).toEqual([]);
-      kit.app.go('active');
-      await finished;
-
-      expect(kit.downloaded).toEqual(['photo-001', 'photo-001', 'photo-001', 'photo-001']); // each read: the photo, and the original for the full probes
-      expect(evalsMock.sent).toHaveLength(1);
-      expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(PROBES);
-    });
-
-    describe('the crop probes', () => {
-      const cropsOf = (kit: ReturnType<typeof makeKit>, shape: string) => kit.vision.textCalls.filter((c) => shapeOf(c.options, c.imageUri) === shape).map((c) => c.options?.regions);
-      const closeTo = (actual: readonly Rect[] | undefined, expected: readonly Rect[]) => {
-        expect(actual).toHaveLength(expected.length);
-        expected.forEach((box, i) => (['x', 'y', 'width', 'height'] as const).forEach((k) => expect(actual![i][k]).toBeCloseTo(box[k], 9)));
-      };
-
-      it('sends one region per item of the Vision read, each grown by a quarter of its short side', async () => {
-        const kit = probeKit();
-        await kit.runner.start();
-
-        const expected = [
-          { x: 0.075, y: 0.075, width: 0.15, height: 0.55 },
-          { x: 0.475, y: 0.075, width: 0.15, height: 0.55 },
-        ];
-        const calls = cropsOf(kit, 'fullSpines0');
-        expect(calls).toHaveLength(1);
-        closeTo(calls[0], expected);
-      });
-
-      it('keeps a crop at the picture\'s edge inside the picture', async () => {
-        const edge = { text: [line('Edge of photo-001', 0.01, 0.02, 0.1, 0.97), line('Far of photo-001', 0.9, 0.1, 0.1, 0.5)] };
-        const kit = probeKit({ scenes: { 'photo-001': edge } });
-        await kit.runner.start();
-
-        const regions = cropsOf(kit, 'fullSpines0')[0]!;
-        expect(regions.length).toBeGreaterThan(0);
-        for (const r of regions) {
-          expect(r.x).toBeGreaterThanOrEqual(0);
-          expect(r.y).toBeGreaterThanOrEqual(0);
-          expect(r.x + r.width).toBeLessThanOrEqual(1 + 1e-9);
-          expect(r.y + r.height).toBeLessThanOrEqual(1 + 1e-9);
-        }
-        expect(regions[0].x).toBe(0);
-        expect(regions[0].y).toBe(0);
-      });
-
-      it('drops a box too small to read and counts two items on one box once', async () => {
-        const scene = {
-          text: [
-            line('Tiny of photo-001', 0.3, 0.3, 0.0005, 0.0005),
-            line('Same of photo-001', 0.5, 0.1, 0.1, 0.5),
-            line('Same again of photo-001', 0.5, 0.1, 0.1, 0.5),
-          ],
-        };
-        const kit = probeKit({ scenes: { 'photo-001': scene } });
-        await kit.runner.start();
-
-        const regions = cropsOf(kit, 'fullSpines0')[0]!;
-        expect(regions.every((r) => r.width >= 0.002 && r.height >= 0.002)).toBe(true);
-        expect(new Set(regions.map((r) => JSON.stringify(r))).size).toBe(regions.length);
-      });
-
-      it('leaves both crop probes out, asking for no text read with regions: [], when the Vision read has no item with a box', async () => {
-        const kit = probeKit({ scenes: { 'photo-001': { text: [] } } });
-        await kit.runner.start();
-
-        expect(kit.vision.textCalls.some((c) => c.options?.regions?.length === 0)).toBe(false);
-        expect(cropsOf(kit, 'fullSpines0')).toEqual([]);
-        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'full', 'fullTiles0']);
-      });
-
-      it('leaves out the items that have no box, and keeps the photo and its rows', async () => {
-        const kit = probeKit({
-          pipeline: (real) => ({
-            ...real,
-            read: async (...args) => {
-              const reading = await real.read(...args);
-              // the first item keeps its box, the rest lose theirs
-              return { ...reading, items: reading.items.map((item, i) => (i === 0 ? item : { ...item, box: undefined })) };
-            },
-          }),
-        });
-        await kit.runner.start();
-
-        expect(sentIds()).toEqual(['photo-001']);
-        expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
-        const regions = cropsOf(kit, 'fullSpines0');
-        expect(regions).toHaveLength(1);
-        expect(regions[0]).toHaveLength(1);
-        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(PROBES);
-      });
-
-      it('leaves the crop probes out when the Vision read failed', async () => {
-        const kit = probeKit({
-          pipeline: (real) => ({
-            ...real,
-            read: async () => {
-              throw new Error('vision broke');
-            },
-          }),
-        });
-        await kit.runner.start();
-
-        expect(kit.vision.textCalls.some((c) => c.options?.regions?.length === 0)).toBe(false);
-        expect(cropsOf(kit, 'fullSpines0')).toEqual([]);
-      });
-
-      it('asks for language correction on fullSpines0 and not on full or fullTiles0', async () => {
-        const kit = probeKit();
-        await kit.runner.start();
-
-        const asked = (shape: string) => kit.vision.textCalls.filter((c) => shapeOf(c.options, c.imageUri) === shape).map((c) => c.options?.languageCorrection === true);
-        expect(asked('fullSpines0')).toEqual([true]);
-        expect(asked('full')).toEqual([false]);
-        expect(asked('fullTiles0')).toEqual([false]);
-      });
-
-      it('leaves a crop probe that throws out and keeps the others', async () => {
-        const kit = probeKit({
-          text: (uri, options) => {
-            if (shapeOf(options, uri) === 'fullSpines0') throw new Error('Vision gave up');
-            return undefined;
-          },
-        });
-        await kit.runner.start();
-
-        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production', 'full', 'fullTiles0']);
-      });
-    });
-
-    it('deletes the photo\'s files once its probes are read', async () => {
-      const kit = probeKit();
-      await kit.runner.start();
-
-      expect(kit.deleted).toEqual([uriOf('photo-001'), uriOf('photo-001'), scaledUriOf('photo-001')]); // the download, the original for the full probes, the scaled still
+      expect(kit.downloaded).toEqual(['photo-001']);
+      expect(kit.deleted).toEqual([uriOf('photo-001')]); // the one download, deleted once it has been read
       expect(trackedPictures()).toEqual([]);
     });
 
-    describe('the second download', () => {
-      it('reads production on the scaled still and the three full probes on a second download, made once', async () => {
-        const kit = probeKit();
-        await kit.runner.start();
+    it('records no full-size probes on any row, and reads the text only from the scaled picture', async () => {
+      const kit = makeKit({ photos: 1 });
+      await kit.runner.start();
 
-        expect(kit.downloaded).toEqual(['photo-001', 'photo-001']);
-        const readOn = (name: string) => kit.vision.textCalls.filter((c) => shapeOf(c.options, c.imageUri) === name).map((c) => c.imageUri);
-        expect(readOn('production')).toEqual([scaledUriOf('photo-001')]);
-        for (const name of ['full', 'fullSpines0', 'fullTiles0']) expect(readOn(name)).toEqual([uriOf('photo-001')]);
-        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(PROBES);
-      });
-
-      it('deletes it once the probes are read', async () => {
-        const kit = probeKit();
-        await kit.runner.start();
-
-        expect(kit.deleted.filter((uri) => uri === uriOf('photo-001'))).toHaveLength(2); // the first download after scaling, the second after the probes
-        expect(trackedPictures()).toEqual([]);
-      });
-
-      it('deletes it when a probe throws', async () => {
-        const kit = probeKit({
-          text: (uri, options) => {
-            if (shapeOf(options, uri) !== 'scanner' && shapeOf(options, uri) !== 'production') throw new Error('Vision gave up');
-            return undefined;
-          },
-        });
-        await kit.runner.start();
-
-        expect(kit.deleted.filter((uri) => uri === uriOf('photo-001'))).toHaveLength(2);
-        expect(trackedPictures()).toEqual([]);
-        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production']);
-      });
-
-      it("leaves out the three full probes when it fails, and keeps production and the photo's rows", async () => {
-        const kit = probeKit({ downloadFailures: [0, 404] }); // the photo downloads, its second download is answered 404
-        await kit.runner.start();
-
-        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production']);
-        expect(sentIds()).toEqual(['photo-001']);
-        expect(results().map((r) => r.outcome)).toEqual(['ok', 'ok']);
-        expect(kit.vision.textCalls.some((c) => shapeOf(c.options, c.imageUri).startsWith('full'))).toBe(false);
-        expect(trackedPictures()).toEqual([]);
-      });
-
-      it('ends the list when the owner stops during it, and keeps what was read', async () => {
-        const kit: ReturnType<typeof makeKit> = probeKit({ downloadFailures: [0, 'network', 'network'], onSleep: () => kit.runner.stop() });
-        await kit.runner.start();
-
-        expect(sentIds()).toEqual(['photo-001']);
-        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production']);
-        expect(kit.vision.textCalls.some((c) => shapeOf(c.options, c.imageUri).startsWith('full'))).toBe(false);
-      });
-
-      it('ends the list when the owner stops during a download that succeeds, and reads nothing more', async () => {
-        const kit: ReturnType<typeof makeKit> = probeKit();
-        const push = kit.downloaded.push.bind(kit.downloaded);
-        kit.downloaded.push = (...ids: string[]) => {
-          const length = push(...ids);
-          if (length === 2) kit.runner.stop(); // the second download of the photo
-          return length;
-        };
-        await kit.runner.start();
-
-        expect(sentIds()).toEqual(['photo-001']);
-        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(['production']);
-        expect(kit.vision.textCalls.some((c) => shapeOf(c.options, c.imageUri).startsWith('full'))).toBe(false);
-        expect(kit.deleted.filter((uri) => uri === uriOf('photo-001'))).toHaveLength(2);
-        expect(trackedPictures()).toEqual([]);
-      });
-
-      it('waits out a PC that is not answering, then reads all four probes', async () => {
-        const kit = probeKit({ downloadFailures: [0, 'network'] });
-        await kit.runner.start();
-
-        expect(kit.sleeps).toEqual([1000]);
-        expect(probesOf('photo-001')!.map((p) => p.name)).toEqual(PROBES);
-      });
-
-      it('keeps the original until the last full probe has read it', async () => {
-        const originalsDeletedAt: number[] = [];
-        const kit: ReturnType<typeof makeKit> = probeKit({
-          text: (uri, options) => {
-            if (uri === uriOf('photo-001') && shapeOf(options, uri) !== 'scanner') originalsDeletedAt.push(kit.deleted.filter((u) => u === uriOf('photo-001')).length);
-            return undefined;
-          },
-        });
-        await kit.runner.start();
-
-        expect(originalsDeletedAt).toEqual([1, 1, 1]); // only the first download (after scaling) is gone while full, fullSpines0 and fullTiles0 read
-      });
-
-      it('does not count the download in the time of the full probe', async () => {
-        let clock = 1_700_000_000_000;
-        const kit: ReturnType<typeof makeKit> = probeKit({
-          now: () => clock,
-          text: (uri, options) => {
-            if (shapeOf(options, uri) === 'full') clock += 530;
-            return undefined;
-          },
-        });
-        const push = kit.downloaded.push.bind(kit.downloaded);
-        kit.downloaded.push = (...ids: string[]) => {
-          const length = push(...ids);
-          if (length === 2) clock += 7000; // the second download takes long
-          return length;
-        };
-        await kit.runner.start();
-
-        expect(probesOf('photo-001')!.find((p) => p.name === 'full')!.ms).toBe(530);
-      });
-
-      it('is not made for a single cover', async () => {
-        const kit = probeKit({ photos: 2 }); // photo-001 is a shelf, photo-002 a single
-        await kit.runner.start();
-
-        expect(kit.downloaded).toEqual(['photo-001', 'photo-001', 'photo-002']);
-      });
-    });
-  });
-
-  describe('spineRegions', () => {
-    const near = (a: Rect, b: Rect) => (['x', 'y', 'width', 'height'] as const).forEach((k) => expect(a[k]).toBeCloseTo(b[k], 9));
-
-    it('takes the pad from the short side of a tall box', () => {
-      const [r] = spineRegions([{ x: 0.4, y: 0.2, width: 0.04, height: 0.6 }]);
-      near(r, { x: 0.39, y: 0.19, width: 0.06, height: 0.62 });
+      expect(results().some((r) => 'ocrProbes' in r)).toBe(false);
+      expect(new Set(kit.vision.textCalls.map((c) => c.imageUri))).toEqual(new Set([uriOf('photo-001')]));
     });
 
-    it('takes the pad from the short side of a wide box', () => {
-      const [r] = spineRegions([{ x: 0.2, y: 0.4, width: 0.6, height: 0.04 }]);
-      near(r, { x: 0.19, y: 0.39, width: 0.62, height: 0.06 });
-    });
+    it('sends both rows of a shelf photo with their timings', async () => {
+      const kit = makeKit({ photos: 1 });
+      await kit.runner.start();
 
-    it('keeps a crop just above 0.002 across and drops one just below, whatever its height', () => {
-      expect(spineRegions([{ x: 0.5, y: 0.2, width: 0.0014, height: 0.5 }])).toHaveLength(1);
-      expect(spineRegions([{ x: 0.5, y: 0.2, width: 0.0013, height: 0.5 }])).toHaveLength(0);
-    });
-
-    it('keeps a crop just above 0.002 tall and drops one just below, whatever its width', () => {
-      expect(spineRegions([{ x: 0.2, y: 0.5, width: 0.5, height: 0.0014 }])).toHaveLength(1);
-      expect(spineRegions([{ x: 0.2, y: 0.5, width: 0.5, height: 0.0013 }])).toHaveLength(0);
-    });
-
-    it('measures the smallest side after the clamp, so an edge box that shrinks under 0.002 is dropped', () => {
-      expect(spineRegions([{ x: 0.9995, y: 0.2, width: 0.004, height: 0.5 }])).toHaveLength(0);
-      expect(spineRegions([{ x: 0.2, y: 0.9995, width: 0.5, height: 0.004 }])).toHaveLength(0);
-    });
-
-    it('keeps two regions that share a corner but differ in size', () => {
-      const out = spineRegions([
-        { x: 0, y: 0, width: 0.1, height: 0.1 },
-        { x: 0, y: 0, width: 0.2, height: 0.2 },
+      expect(results().map((r) => [r.engine, r.outcome])).toEqual([
+        ['apple_model', 'ok'],
+        ['vision_pipeline', 'ok'],
       ]);
-      expect(out).toHaveLength(2);
-    });
-
-    it('clamps to the picture, drops a region under 0.002 on a side, folds equal regions into one and keeps order', () => {
-      const out = spineRegions([
-        { x: 0.5, y: 0.5, width: 0.1, height: 0.1 },
-        { x: 0.95, y: 0.9, width: 0.1, height: 0.1 },
-        { x: 0.3, y: 0.3, width: 0.0001, height: 0.0001 },
-        { x: 0.5, y: 0.5, width: 0.1, height: 0.1 },
-      ]);
-      expect(out).toHaveLength(2);
-      near(out[0], { x: 0.475, y: 0.475, width: 0.15, height: 0.15 });
-      near(out[1], { x: 0.925, y: 0.875, width: 0.075, height: 0.125 });
+      expect(results().every((r) => typeof r.latencyMs === 'number')).toBe(true);
     });
   });
 
@@ -1201,7 +715,7 @@ describe('the eval runner', () => {
       await kit.runner.refresh();
       await kit.runner.continueRun();
 
-      expect(kit.downloaded).toEqual(['photo-002', 'photo-002', 'photo-004']);
+      expect(kit.downloaded).toEqual(['photo-002', 'photo-004']);
       expect(sentIds()).toEqual(['photo-002', 'photo-004']);
       expect(evalsMock.opened).toHaveLength(0); // the run was not opened again
       expect(evalsMock.finishes).toHaveLength(1);
@@ -1314,7 +828,7 @@ describe('the eval runner', () => {
       expect(kit.sleeps).toEqual([sendWaitMs(1), sendWaitMs(2), sendWaitMs(3)]);
       expect(kit.sleeps).toEqual([1000, 2000, 4000]);
       expect(evalsMock.attempts).toEqual(['photo-001', 'photo-001', 'photo-001', 'photo-001', 'photo-002']);
-      expect(downloadedAtSend).toEqual([2, 2, 2, 2, 3]); // photo 2 is not even downloaded until photo 1 is on the PC
+      expect(downloadedAtSend).toEqual([1, 1, 1, 1, 2]); // photo 2 is not even downloaded until photo 1 is on the PC
       expect(sentIds()).toEqual(kit.ids);
       expect(results().filter((r) => r.photoId === 'photo-001')).toHaveLength(2);
     });
@@ -1417,7 +931,7 @@ describe('the eval runner', () => {
 
         expect(kit.sleeps).toEqual([1000, 2000, 4000]);
         expect(kit.runner.getState().skipped).toEqual([]);
-        expect(kit.downloaded).toEqual(['photo-001', 'photo-001', 'photo-002', 'photo-002', 'photo-003']);
+        expect(kit.downloaded).toEqual(['photo-001', 'photo-002', 'photo-003']);
         expect(sentIds()).toEqual(kit.ids);
         expect(evalsMock.finishes).toEqual([{}]);
         expect(evalsMock.run?.partial).toBe(false);
@@ -1534,7 +1048,7 @@ describe('the eval runner', () => {
 
         const state = kit.runner.getState();
         expect(state).toMatchObject({ phase: 'error', message: notice, refused: [], pending: 1 });
-        expect(kit.downloaded).toEqual(['photo-001', 'photo-001']); // it stopped reading
+        expect(kit.downloaded).toEqual(['photo-001']); // it stopped reading
         expect(evalsMock.sent).toEqual([]);
         expect(evalsMock.finishes).toEqual([]);
         expect(kit.outbox.getString('eval-outbox-v1')).toContain('photo-001');
@@ -1551,7 +1065,7 @@ describe('the eval runner', () => {
         await kit.runner.continueRun();
 
         expect(sentIds()).toEqual(['photo-001', 'photo-002', 'photo-003']); // the kept photo goes first
-        expect(kit.downloaded).toEqual(['photo-001', 'photo-001', 'photo-002', 'photo-002', 'photo-003']);
+        expect(kit.downloaded).toEqual(['photo-001', 'photo-002', 'photo-003']);
         expect(evalsMock.finishes).toEqual([{}]);
         expect(kit.runner.getState().refused).toEqual([]);
       });
@@ -1625,7 +1139,7 @@ describe('the eval runner', () => {
       await relaunched.continueRun();
 
       expect(sentIds()).toEqual(['photo-001', 'photo-002', 'photo-003']);
-      expect(kit.downloaded).toEqual(['photo-001', 'photo-001', 'photo-002', 'photo-002', 'photo-003']); // photo 1 was not read twice
+      expect(kit.downloaded).toEqual(['photo-001', 'photo-002', 'photo-003']); // photo 1 was not read twice
       expect(evalsMock.finishes).toHaveLength(1);
     });
 
@@ -1673,7 +1187,7 @@ describe('the eval runner', () => {
       kit.app.go('active');
       await finished;
 
-      expect(kit.downloaded).toEqual(['photo-001', 'photo-001', 'photo-001', 'photo-002']); // read again from the start
+      expect(kit.downloaded).toEqual(['photo-001', 'photo-001', 'photo-002']); // read again from the start
       expect(sentIds()).toEqual(['photo-001', 'photo-002']);
       expect(results().map((r) => r.outcome)).toEqual(Array(4).fill('ok')); // no engine error or timeout from being cut short
     });
@@ -1686,7 +1200,7 @@ describe('the eval runner', () => {
       kit.app.go('active');
       await finished;
 
-      expect(kit.downloaded).toEqual(['photo-001', 'photo-001', 'photo-001']);
+      expect(kit.downloaded).toEqual(['photo-001', 'photo-001']);
       expect(evalsMock.sent).toHaveLength(1);
       expect(results()).toHaveLength(2);
     });
@@ -1916,7 +1430,7 @@ describe('the eval runner', () => {
       const kit: ReturnType<typeof makeKit> = makeKit({
         photos: 4,
         text: () => {
-          if (!stopped && kit.downloaded.length === 3) {
+          if (!stopped && kit.downloaded.length === 2) {
             stopped = true;
             kit.runner.stop();
           }
@@ -1955,7 +1469,7 @@ describe('the eval runner', () => {
       const kit: ReturnType<typeof makeKit> = makeKit({
         photos: 3,
         onRead: () => {
-          if (!stopped && kit.downloaded.length === 3) {
+          if (!stopped && kit.downloaded.length === 2) {
             stopped = true;
             kit.runner.stop();
           }
@@ -1974,7 +1488,7 @@ describe('the eval runner', () => {
       const kit: ReturnType<typeof makeKit> = makeKit({
         photos: 3,
         text: () => {
-          if (!paused && kit.downloaded.length === 3) {
+          if (!paused && kit.downloaded.length === 2) {
             paused = true;
             kit.runner.pause();
           }
@@ -2024,7 +1538,7 @@ describe('the eval runner', () => {
 
       expect(sentIds()).toEqual(['photo-001']);
       expect(evalsMock.finishes).toEqual([{ partial: true }]);
-      expect(kit.downloaded).toEqual(['photo-001', 'photo-001']);
+      expect(kit.downloaded).toEqual(['photo-001']);
     });
   });
 
@@ -2034,7 +1548,7 @@ describe('the eval runner', () => {
       const kit: ReturnType<typeof makeKit> = makeKit({
         photos: 3,
         text: () => {
-          if (!paused && kit.downloaded.length === 3) {
+          if (!paused && kit.downloaded.length === 2) {
             paused = true;
             kit.runner.pause();
           }
@@ -2049,7 +1563,7 @@ describe('the eval runner', () => {
       await finished;
       expect(sentIds()).toEqual(kit.ids);
       expect(results()).toHaveLength(6);
-      expect(kit.downloaded).toEqual(['photo-001', 'photo-001', 'photo-002', 'photo-002', 'photo-003']); // the paused photo was not read twice
+      expect(kit.downloaded).toEqual(['photo-001', 'photo-002', 'photo-003']); // the paused photo was not read twice
     });
   });
 
