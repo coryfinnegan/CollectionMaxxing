@@ -124,6 +124,25 @@ describe('Review: skipped rows', () => {
     expect(scanMock.sessions.get(SESSION)!.candidates[0]!.decision).toBe('undecided');
   });
 
+  it('moves a row the server skips while Review is open to Skipped, with its reason, and Put back restores it (#809)', async () => {
+    const row = candidate({ resolution: 'not_found', decision: 'undecided', visibleText: 'Harbour Atlas' });
+    seed([row]);
+    await open();
+    await screen.findByText('Not found · 1');
+    // The server's own read of the shelf photo lands late: it skipped this row (the cards keep it, rejected).
+    await act(async () => {
+      const mock = scanMock.sessions.get(SESSION)!.candidates[0]!;
+      Object.assign(mock, { decision: 'rejected', skipReason: 'server_did_not_see', changeSeq: ++scanMock.sessions.get(SESSION)!.seq });
+      useCardsStore.getState().merge([mock], { announce: false });
+    });
+    await screen.findByText('Skipped · 1');
+    await press('1 item skipped. Show it');
+    expect(screen.getByText('The server read this shelf differently')).toBeTruthy();
+    await press('Put back Harbour Atlas');
+    await screen.findByText('Not found · 1');
+    expect(screen.queryByText(/Skipped ·/)).toBeNull();
+  });
+
   it('offers a viewer no Put back', async () => {
     scanMock.role = 'viewer';
     server.use(http.get('*/api/v1/me', () => HttpResponse.json({ id: 'u1', memberships: [{ libraryId: MOCK_LIBRARY_ID, role: 'viewer' }] })));

@@ -34,7 +34,8 @@ export function parseConfig(body: unknown): RecognitionConfig | undefined {
   else if (!allPositive(fingerprints, Object.keys(DEFAULT_RECOGNITION_CONFIG.fingerprints))) return undefined;
   if (extractionPrompt === undefined) extractionPrompt = DEFAULT_RECOGNITION_CONFIG.extractionPrompt;
   else if (!isObj(extractionPrompt) || !text(extractionPrompt.template) || !text(extractionPrompt.outputRules)) return undefined;
-  return { ...(body as unknown as RecognitionConfig), fingerprints, extractionPrompt } as RecognitionConfig;
+  // Only a boolean true counts: a server from before the shelf reader sends nothing, and that means no shelf reader.
+  return { ...(body as unknown as RecognitionConfig), fingerprints, extractionPrompt, shelfReader: body.shelfReader === true } as RecognitionConfig;
 }
 
 interface Cached {
@@ -54,6 +55,14 @@ export class RecognitionConfigStore {
 
   current(): RecognitionSettings {
     return { ...(this.cached?.config ?? DEFAULT_RECOGNITION_CONFIG), local: DEFAULT_LOCAL_TUNING };
+  }
+
+  /**
+   * Whether the server that hosts the library can read shelves (#809). False before any config arrived and for a server that does
+   * not say. A flag is not part of RecognitionSettings: only the shelf upload asks.
+   */
+  shelfReader(): boolean {
+    return (this.cached?.config as { shelfReader?: boolean } | undefined)?.shelfReader === true;
   }
 
   /** Never throws. Overlapping calls share one request. */

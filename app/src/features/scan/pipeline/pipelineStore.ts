@@ -59,6 +59,11 @@ export interface PicSnap {
   printKind?: CueKind;
   /** Review's "Snap cover": this picture was shot for one T2 row, which it upgrades in place. Absent on older snaps. */
   boundCandidateId?: string;
+  /**
+   * True while this shelf snap's still waits to be sent to the server's shelf reader (#809). Set once `identify` has answered, cleared
+   * when the read is done or given up, and saved with the snap, so a killed app sends what was still waiting.
+   */
+  shelfUpload?: true;
 }
 
 export interface PipelineState {
@@ -78,6 +83,8 @@ export type PipelineStore = PipelineState & {
   setThumb(snapId: string, localId: string, thumbUri: string): void;
   setPayload(snapId: string, localId: string, payload: IdentifyItem): void;
   setSendId(snapId: string, sendId: string): void;
+  /** Puts a snap in the shelf upload queue, or takes it out (done, given up, or the scan is over). */
+  setShelfUpload(snapId: string, waiting: boolean): void;
   markSent(snapId: string, sessionId: string, candidateIds: Record<string, string>): void;
   removeSnap(snapId: string): void;
   removeItem(snapId: string, localId: string): void;
@@ -141,6 +148,11 @@ export function createPipelineStore({ storage }: { storage: KeyValueStore }): St
       setPayload: (snapId, localId, payload) =>
         edit(snapId, (s) => ({ ...s, items: s.items.map((i) => (i.localId === localId ? { ...i, payload } : i)) })),
       setSendId: (snapId, sendId) => edit(snapId, (s) => ({ ...s, sendId })),
+      setShelfUpload: (snapId, waiting) => {
+        const snap = get().snaps.find((s) => s.snapId === snapId);
+        if (!snap || !!snap.shelfUpload === waiting) return; // nothing changes: no write, no re-render
+        edit(snapId, ({ shelfUpload: _was, ...rest }) => (waiting ? { ...rest, shelfUpload: true } : rest));
+      },
       markSent: (snapId, sessionId, candidateIds) =>
         edit(snapId, (s) => ({
           ...s,
