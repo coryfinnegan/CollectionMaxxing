@@ -53,10 +53,10 @@ public class EvalServerReadLeadingWordTests
             Task.FromResult<ServerReading?>(new ServerReading(new ShelfReadResult(items, ShelfReadStatus.Ok), 10));
     }
 
-    private static EvalRunScoring Scoring(IServerReadings server)
+    private static EvalRunScoring Scoring(IServerReadings server, ICatalogProvider? films = null)
     {
         var scanning = new ScanningOptions { JobResolveBudget = TimeSpan.FromSeconds(30) };
-        var resolver = new TextSearchResolver(null!, new Catalogue(), [new FinalFilms()], scanning, NullLogger<TextSearchResolver>.Instance);
+        var resolver = new TextSearchResolver(null!, new Catalogue(), [films ?? new FinalFilms()], scanning, NullLogger<TextSearchResolver>.Instance);
         var grounder = new EvalGrounder(
             new IdentifyGrounding(resolver, new FixedScoring()), null!, scanning,
             Options.Create(new EvalsOptions { GroundingParallelism = 4 }), new NoSerials(), TimeProvider.System);
@@ -88,5 +88,54 @@ public class EvalServerReadLeadingWordTests
 
         BestOf(rows.Single(r => r.Engine == "apple_model")).ShouldBe("The Final Destination");
         BestOf(rows.Single(r => r.Engine == ServerEngines.Model)).ShouldBeNull();
+    }
+
+    /// <summary>Finds the three Highlander films for any search; the third is also listed under the title on the tape.</summary>
+    private sealed class HighlanderFilms : ICatalogProvider, IAlternativeTitleProvider
+    {
+        public List<string> Asked { get; } = [];
+
+        public string Name => "tmdb";
+
+        public bool Supports(WorkKind kind) => kind == WorkKind.Film;
+
+        public bool HasAlternativeTitles(ProviderRelease release) => true;
+
+        public Task<ProviderRelease?> LookupAsync(Identifier id, CancellationToken ct) => Task.FromResult<ProviderRelease?>(null);
+
+        private static ProviderRelease Film(int id, string title, int year) =>
+            new() { Provider = "tmdb", ExternalId = $"movie/{id}", WorkKey = $"movie/{id}", Title = title, Kind = WorkKind.Film, Year = year };
+
+        public Task<IReadOnlyList<ProviderRelease>> SearchAsync(CatalogQuery query, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<ProviderRelease>>(
+                query.Title.StartsWith("HIGHLANDER", StringComparison.OrdinalIgnoreCase)
+                    ? [Film(1, "Highlander: Endgame", 2000), Film(2, "Highlander II: The Quickening", 1991), Film(3, "Highlander III: The Sorcerer", 1994)]
+                    : []);
+
+        public Task<IReadOnlyList<string>?> AlternativeTitlesAsync(ProviderRelease release, CancellationToken ct)
+        {
+            lock (Asked)
+            {
+                Asked.Add(release.ExternalId);
+            }
+
+            return Task.FromResult<IReadOnlyList<string>?>(release.ExternalId == "movie/3" ? ["Highlander: The Final Dimension"] : []);
+        }
+    }
+
+    [Fact]
+    public async Task The_server_row_is_asked_for_alternative_titles_and_the_phone_model_row_is_not()
+    {
+        var films = new HighlanderFilms();
+        var titles = new[] { Read }.Concat(Fillers).ToArray();
+        var phone = new EvalPhotoInput(
+            "p1", ScanEngine.AppleModel, EvalOutcome.Ok, null, [.. titles.Select(ModelItem)], 0, 1000, null, ThermalState.Nominal);
+        var server = new Reader([.. titles.Select(title => new ShelfReadItem(title, "", ShelfItemKind.Film))]);
+
+        var rows = await Scoring(server, films).GroundPhotoAsync([phone], new EvalGroundingMemo(), CancellationToken.None, ServerReadMode.Read);
+
+        BestOf(rows.Single(r => r.Engine == ServerEngines.Model)).ShouldBe("Highlander III: The Sorcerer");
+        BestOf(rows.Single(r => r.Engine == "apple_model")).ShouldNotBe("Highlander III: The Sorcerer");
+        films.Asked.Count.ShouldBe(3, "the server's row asked once for its three candidates; the phone's row asked none");
     }
 }

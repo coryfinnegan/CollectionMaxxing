@@ -24,6 +24,9 @@ public sealed class ProviderResilienceOptions
 
 internal static class ProviderResilienceExtensions
 {
+    /// <summary>Set on a request that must not be retried (an optional call: the pipeline sends it once).</summary>
+    internal static readonly HttpRequestOptionsKey<bool> NoRetryKey = new("CollectionMaxxing.Providers.NoRetry");
+
     /// <summary>Adds the standard pipeline: per-attempt timeout, jittered retries honouring Retry-After, circuit breaker.</summary>
     public static IHttpClientBuilder AddProviderResilience(this IHttpClientBuilder builder)
     {
@@ -58,6 +61,12 @@ internal static class ProviderResilienceExtensions
                     if (args.Outcome.Exception is ProviderQuotaExhaustedException)
                     {
                         return ValueTask.FromResult(false); // the day's quota is spent: a retry would send a request that was already refused
+                    }
+
+                    // An optional extra call (noRetry) is not retried after an error status; its failure leaves the answer as it was.
+                    if (args.Outcome.Result?.RequestMessage is { } sent && sent.Options.TryGetValue(NoRetryKey, out var once) && once)
+                    {
+                        return ValueTask.FromResult(false);
                     }
 
                     return ProviderCalls.IsFailFast ? ValueTask.FromResult(false) : transient(args);

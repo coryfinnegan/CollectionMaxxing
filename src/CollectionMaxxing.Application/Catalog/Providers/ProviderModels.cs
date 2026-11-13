@@ -43,6 +43,13 @@ public sealed record ProviderRelease
     public IReadOnlyList<Identifier> Identifiers { get; init; } = [];
 
     /// <summary>
+    /// Other titles the provider knows the release by, when they were asked for (<see cref="IAlternativeTitleProvider"/>); empty
+    /// otherwise. They reach the scorer only (<see cref="CandidateRelease.AlternativeTitles"/>): the release is shown and stored
+    /// under <see cref="Title"/>.
+    /// </summary>
+    public IReadOnlyList<string> AlternativeTitles { get; init; } = [];
+
+    /// <summary>
     /// This release in the format the item was read as, when the provider named none and the format fits the work: TMDB
     /// answers a film and IGDB a game with no format at all, so a DVD cover would otherwise be stored as format Unknown.
     /// A format the provider did name is kept.
@@ -64,6 +71,7 @@ public sealed record ProviderRelease
         Creators = Creators,
         Edition = Edition,
         Identifiers = Identifiers,
+        AlternativeTitles = AlternativeTitles,
     };
 }
 

@@ -75,6 +75,12 @@ public sealed record CandidateRelease
     public string? Edition { get; init; }
 
     public IReadOnlyList<Identifier> Identifiers { get; init; } = [];
+
+    /// <summary>
+    /// Other titles the release is known by (a regional title, the title printed on a tape). The scorer takes the best score over
+    /// <see cref="Title"/> and these; the release is still shown and stored under <see cref="Title"/>. Empty for nearly every release.
+    /// </summary>
+    public IReadOnlyList<string> AlternativeTitles { get; init; } = [];
 }
 
 public enum MatchOutcome

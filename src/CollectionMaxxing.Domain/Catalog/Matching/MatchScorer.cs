@@ -319,10 +319,14 @@ public static class MatchScorer
         var answerable = AnswerableIn(read, releases, titles);
         // Of releases tied on score, the one whose title is closer to the read's own words goes first (the show "Kimba the White
         // Lion" level with the film "Kimba the White Lion: Symphonic Poem" for "Kimba the Lion"); a tie on that too keeps the input order.
+        // A release also known by other titles is scored under each and keeps the best (still shown under its own title); of a tie, the
+        // release that matched by its own title goes first, so a title that is some other film's main title never beats that film.
         var ranked = releases
-            .Select(release => ScoreCore(read, release, profile, answerable, titles))
-            .OrderByDescending(scored => scored.Score)
-            .ThenByDescending(TitleValue)
+            .Select(release => ScoreBest(read, release, profile, answerable, titles))
+            .OrderByDescending(scored => scored.Scored.Score)
+            .ThenByDescending(scored => TitleValue(scored.Scored))
+            .ThenBy(scored => scored.ByAlternative)
+            .Select(scored => scored.Scored)
             .ToList();
 
         if (ranked.Count == 0)
@@ -343,6 +347,24 @@ public static class MatchScorer
         }
 
         return new MatchResult(outcome, ranked);
+    }
+
+    private static (ScoredRelease Scored, bool ByAlternative) ScoreBest(
+        ReadItem read, CandidateRelease release, ScoringProfile profile, Answerable answerable, TitleCache titles)
+    {
+        var best = ScoreCore(read, release, profile, answerable, titles);
+        var byAlternative = false;
+        foreach (var alternative in release.AlternativeTitles.Where(t => !string.IsNullOrWhiteSpace(t)))
+        {
+            var scored = ScoreCore(read, release with { Title = alternative, AlternativeTitles = [] }, profile, answerable, titles);
+            if (scored.Score > best.Score)
+            {
+                best = scored with { Release = release };
+                byAlternative = true;
+            }
+        }
+
+        return (best, byAlternative);
     }
 
     /// <summary>The title term of a scored release, rounded as scores are; 0 when it has none.</summary>

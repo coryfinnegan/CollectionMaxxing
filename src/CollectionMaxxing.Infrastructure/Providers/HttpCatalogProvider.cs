@@ -80,7 +80,9 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
     /// quota check). <paramref name="refreshAuth"/> runs once on a 401, and returns true when the request is worth
     /// sending again with fresh credentials. With <paramref name="cacheNotFound"/> false a 404 (and an answer
     /// <paramref name="isEmpty"/> calls empty) is not remembered, so the same code is asked again next time. Otherwise
-    /// an empty answer is remembered for a day and a full answer for 30 days.
+    /// an empty answer is remembered for a day and a full answer for 30 days. With <paramref name="reportFailure"/> false a
+    /// failed call is not added to the caller's failure report: for an optional extra call whose failure must not make the
+    /// whole search look unanswered. With <paramref name="noRetry"/> the pipeline sends the request once.
     /// </summary>
     protected async Task<FetchResult> FetchAsync(
         string cacheKey,
@@ -89,14 +91,16 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
         Func<CancellationToken, Task<bool>>? admit = null,
         Func<CancellationToken, Task<bool>>? refreshAuth = null,
         bool cacheNotFound = true,
-        Func<JsonDocument, bool>? isEmpty = null)
+        Func<JsonDocument, bool>? isEmpty = null,
+        bool reportFailure = true,
+        bool noRetry = false)
     {
         // Concurrent identical lookups share one upstream call: the first runs the fetch, the rest see what it cached.
         var result = await Runtime.Coalescer.RunAsync($"{Name}:{cacheKey}", token =>
-            FetchUncoalescedAsync(cacheKey, buildRequest, admit, refreshAuth, cacheNotFound, isEmpty, token), ct);
+            FetchUncoalescedAsync(cacheKey, buildRequest, admit, refreshAuth, cacheNotFound, isEmpty, noRetry, token), ct);
 
         // One place for every way a fetch fails. A 404, an empty answer and a spent quota are answers, not failures.
-        if (result.Status == FetchStatus.Failed)
+        if (result.Status == FetchStatus.Failed && reportFailure)
         {
             ProviderCalls.ReportFailure();
         }
@@ -111,6 +115,7 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
         Func<CancellationToken, Task<bool>>? refreshAuth,
         bool cacheNotFound,
         Func<JsonDocument, bool>? isEmpty,
+        bool noRetry,
         CancellationToken ct)
     {
         var cached = await Runtime.Cache.TryGetAsync(Name, cacheKey, ct);
@@ -134,6 +139,11 @@ public abstract class HttpCatalogProvider(HttpClient http, ProviderRuntime runti
                 await Runtime.Limiters.For(Name, minInterval).WaitAsync(ct);
                 using var request = await buildRequest(ct);
                 request.Options.Set(ProviderRetryAdmission.OptionKey, new ProviderRetryAdmission(Name, minInterval, admit));
+                if (noRetry)
+                {
+                    request.Options.Set(ProviderResilienceExtensions.NoRetryKey, true);
+                }
+
                 // Headers first: with the whole body buffered up front, the size cap below would only fire after the
                 // damage was done, and a chunked answer (no Content-Length) would slip past the header check entirely.
                 using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
