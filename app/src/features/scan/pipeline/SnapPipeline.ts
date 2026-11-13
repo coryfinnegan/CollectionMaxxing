@@ -384,7 +384,10 @@ export class SnapPipeline {
         // The answer was asked for a scan that may be over by now (a library switch, a Discard): it goes nowhere. The session
         // snapshot brings the cards back if the person returns to that scan.
         if (!this.isCurrent(sessionId)) return;
-        announce(useCardsStore.getState().merge(candidates));
+        // Rows the server skipped already (a repeat, a fragment) follow the one rule for skipped rows: no card, kept as skipped.
+        const cards = useCardsStore.getState();
+        announce(cards.merge(candidates.filter((c) => c.decision !== 'rejected')));
+        cards.skip(candidates.filter((c) => c.decision === 'rejected'), { needCard: false });
         tray.getState().setOnline(true);
         this.upgrades.consider(snap.snapId); // Apple's read is on the screen; the server's read follows, if it has one
         this.finishBound(snap.snapId); // the row is upgraded now; a bound screen leaves

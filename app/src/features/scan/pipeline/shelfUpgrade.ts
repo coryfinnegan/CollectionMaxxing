@@ -26,6 +26,9 @@ export const SHELF_MAX_TRIES = 3;
 const DEFAULT_WAIT_MS = 5_000;
 const MIN_WAIT_MS = 1_000;
 const MAX_WAIT_MS = 60_000;
+/** With no connection the next try waits this long, doubling to the cap. */
+export const FIRST_OFFLINE_WAIT_MS = 30_000;
+const MAX_OFFLINE_WAIT_MS = 5 * 60_000;
 
 /** What the pipeline needs to send a shelf snap: the same file pieces :verify-cover uses, and what the server says it can do. */
 export interface ShelfUploadDeps extends CoverVerifyDeps {
@@ -50,6 +53,8 @@ export class ShelfUpgrades {
   /** Sends made so far per snap this run, and when a snap the server was too busy for may be tried again. */
   private readonly tries = new Map<string, number>();
   private readonly retryAt = new Map<string, number>();
+  /** How many times in a row a send found no connection, per snap. */
+  private readonly waits = new Map<string, number>();
   /** The sessions whose server answered "no reader": nothing more goes for them. */
   private readonly readerOff = new Set<string>();
 
@@ -157,7 +162,9 @@ export class ShelfUpgrades {
       const target = fitLongEdge(stored.width, stored.height, SHELF_LONG_EDGE);
       // Always re-encoded, even when it is small enough: that is what leaves the photo's hidden details behind.
       const shrunk = await shelf.shrink({ uri: stored.stillUri, width: stored.width, height: stored.height, orientation: 1 }, target);
-      if (shrunk.uri !== stored.stillUri) sent = shrunk.uri;
+      // The stored still is never posted and never deleted as if it were the shrunk copy.
+      if (shrunk.uri === stored.stillUri) return this.finish(snap.snapId, 'gave_up', 'the photo was not re-encoded');
+      sent = shrunk.uri;
       if (controller.signal.aborted) return this.finish(snap.snapId, 'aborted');
       const file = await shelf.readFile(shrunk.uri);
       if (file.size > MAX_VERIFY_BYTES) return this.finish(snap.snapId, 'gave_up'); // the server takes up to 4 MB
@@ -199,12 +206,17 @@ export class ShelfUpgrades {
   /** A send that never reached the server does not count as a try. */
   private waitForConnection(snapId: string): Outcome {
     this.tries.set(snapId, Math.max(0, (this.tries.get(snapId) ?? 1) - 1));
+    // Back off (30 s, 60 s, ... 5 min) so the photo is not shrunk and re-encoded again with every flush while there is no connection.
+    const waits = (this.waits.get(snapId) ?? 0) + 1;
+    this.waits.set(snapId, waits);
+    this.retryAt.set(snapId, this.now() + Math.min(MAX_OFFLINE_WAIT_MS, FIRST_OFFLINE_WAIT_MS * 2 ** (waits - 1)));
     return 'wait';
   }
 
   /** The upgrade is over for this snap, one way or another: it leaves the queue. Warnings carry a status, never a title or a path. */
   private finish(snapId: string, outcome: Outcome, why?: string): Outcome {
     this.tries.delete(snapId);
+    this.waits.delete(snapId);
     this.retryAt.delete(snapId);
     this.deps.store.getState().setShelfUpload(snapId, false);
     if (outcome === 'gave_up' && why) logger.warn(`A shelf photo was not read by the server (${why}).`);
@@ -213,18 +225,20 @@ export class ShelfUpgrades {
 
   /**
    * The server's rows join the cards the way `identify` answers and events do: the rows it added arrive (announced once, as any
-   * new row), the phone's rows it skipped become "skipped" (they stay in the store, decision `rejected`, so nothing flickers or
-   * disappears and Review can put them back). A row the person has acted on is never touched.
+   * new row), the phone's rows it skipped follow the one rule for skipped rows (cardsStore `skip`: no card, kept as skipped, the
+   * receipt line stays settled, Review can put them back). A row the person has acted on is never touched.
    */
   private merge(rows: CandidateDto[]) {
     const cards = useCardsStore.getState();
-    const skipped = rows.filter((c) => c.decision === 'rejected').filter((c) => {
+    // A skip only applies to a row that still has a card (one the person removed has none and stays gone), never to a discarded
+    // one, and never to one the person has acted on. `skip` itself ignores a row with no card.
+    const skipped = withoutDiscarded(rows.filter((c) => c.decision === 'rejected')).filter((c) => {
       const mine = cards.byId[c.id];
       return !mine || (mine.decision === 'undecided' && !mine.userEdited && !mine.createdItemId);
     });
     const added = withoutDiscarded(rows.filter((c) => c.decision !== 'rejected'));
     announce(cards.merge(added));
-    if (skipped.length > 0) useCardsStore.getState().merge(skipped, { announce: false });
+    cards.skip(skipped);
   }
 }
 

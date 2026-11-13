@@ -133,7 +133,8 @@ describe('Review: skipped rows', () => {
     await act(async () => {
       const mock = scanMock.sessions.get(SESSION)!.candidates[0]!;
       Object.assign(mock, { decision: 'rejected', skipReason: 'server_did_not_see', changeSeq: ++scanMock.sessions.get(SESSION)!.seq });
-      useCardsStore.getState().merge([mock], { announce: false });
+      useCardsStore.getState().merge([{ ...mock, decision: 'undecided', skipReason: null, changeSeq: 1 }], { announce: false }); // it had a card
+      useCardsStore.getState().skip([{ ...mock }]);
     });
     await screen.findByText('Skipped · 1');
     await press('1 item skipped. Show it');

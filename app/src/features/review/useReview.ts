@@ -72,12 +72,13 @@ export function useReview({
   const dismissCelebration = useCallback(() => setCelebration(null), []);
 
   const list = useMemo(() => reviewable(Object.values(byId)), [byId]);
-  // A row the server skips while Review is open (its own read of a shelf photo arrives late, #809) stays in the cards, rejected:
-  // it joins the skipped rows here, with its reason and Put back, instead of vanishing from the list.
+  // A row the server skips while Review is open (its own read of a shelf photo arrives late, #809) is kept by the cards store as
+  // skipped (one rule for every path, see cardsStore): it joins the skipped rows here, with its reason and Put back.
+  const serverSkipped = useCardsStore((s) => s.skipped);
   const skippedList = useMemo(() => {
     const known = new Set(skipped.map((c) => c.id));
-    return skippedRows([...skipped, ...skippedCandidates(Object.values(byId)).filter((c) => !known.has(c.id))]);
-  }, [skipped, byId]);
+    return skippedRows([...skipped, ...skippedCandidates(Object.values(serverSkipped)).filter((c) => !known.has(c.id))]);
+  }, [skipped, serverSkipped]);
   const groups = useMemo(() => groupCandidates(list), [list]);
   const count = addCount(list, draft);
 

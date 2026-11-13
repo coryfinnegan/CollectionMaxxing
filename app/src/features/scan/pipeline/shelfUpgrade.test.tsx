@@ -15,7 +15,10 @@ import { reviewable } from '@/features/review/grouping';
 import { skippedRows } from '@/features/review/skipped';
 import { useCardsStore } from '../cards/cardsStore';
 import { getDiscardOutbox } from '../session/discards';
-import { SHELF_MAX_TRIES, SHELF_TIMEOUT_MS } from './shelfUpgrade';
+import { routeSessionMessage, mergeSnapshotIntoCards } from '../session/sessionApi';
+import { pictureLines } from './lines';
+import { restPipelineApi } from './pipelineApi';
+import { FIRST_OFFLINE_WAIT_MS, SHELF_MAX_TRIES, SHELF_TIMEOUT_MS } from './shelfUpgrade';
 import { SnapPipeline } from './SnapPipeline';
 import { FakeShelfFiles, makeKit, readItem, readingOf, resetKit } from './testKit';
 
@@ -30,13 +33,18 @@ const gate = () => {
 };
 
 /** A kit whose pipeline can send shelf photos. */
-function shelfKit(options: { enabled?: boolean } = {}) {
+function shelfKit(options: { enabled?: boolean; signals?: AbortSignal[] } = {}) {
   const kit = makeKit();
   const files = new FakeShelfFiles(kit.fs);
   files.enabled = options.enabled ?? true;
   kit.deps.shelf = files.shelf;
   let clock = 1_000_000;
-  const pipeline = new SnapPipeline({ ...kit.deps, now: () => clock });
+  const { signals } = options;
+  // Records the signal of every upload, so a test can see that the request itself was aborted.
+  const api = signals
+    ? { ...kit.deps.api, readShelf: async (...args: Parameters<typeof restPipelineApi.readShelf>) => (signals.push(args[3]!), restPipelineApi.readShelf(...args)) }
+    : kit.deps.api;
+  const pipeline = new SnapPipeline({ ...kit.deps, api, now: () => clock });
   return {
     ...kit,
     files,
@@ -93,6 +101,10 @@ const skippedByServer = (sessionId: string, row: CandidateDto): CandidateDto => 
 };
 
 const cards = () => Object.values(useCardsStore.getState().byId);
+const skippedNow = () => Object.values(useCardsStore.getState().skipped);
+/** The receipt lines of the kit's snaps, as the scanner builds them (cards plus skipped rows). */
+const lineStatuses = (kit: Kit) =>
+  pictureLines(kit.store.getState().snaps, [...cards(), ...skippedNow()], true).map((l) => l.status);
 const cardFor = (title: string) => cards().find((c) => c.visibleText === title || c.release?.title === title);
 
 beforeEach(() => {
@@ -237,15 +249,15 @@ describe('what comes back', () => {
     answer.release();
     await settled(kit);
 
-    await waitFor(() => expect(useCardsStore.getState().byId[phoneRow.id]?.decision).toBe('rejected'));
-    expect(skippedRows(cards()).map((r) => [r.candidate.id, r.reason])).toEqual([[phoneRow.id, 'server_did_not_see']]);
+    await waitFor(() => expect(useCardsStore.getState().skipped[phoneRow.id]?.decision).toBe('rejected'));
+    expect(skippedRows(skippedNow()).map((r) => [r.candidate.id, r.reason])).toEqual([[phoneRow.id, 'server_did_not_see']]);
     expect(reviewable(cards()).map((c) => c.id)).not.toContain(phoneRow.id);
     expect(useCardsStore.getState().order[phoneRow.id]).toBe(orderBefore); // the list did not jump
-    expect(cards().some((c) => c.id === phoneRow.id)).toBe(true); // still there for Put back
+    expect(lineStatuses(kit)).toEqual(['done', 'done']); // the receipt line stays settled
 
     await patchCandidate(kit.tray.getState().sessionId!, phoneRow.id, { decision: 'undecided' }); // Put back
     expect(reviewable(cards()).map((c) => c.id)).toContain(phoneRow.id);
-    expect(skippedRows(cards())).toEqual([]);
+    expect(skippedNow()).toEqual([]);
   });
 
   it('leaves a row the person has already acted on as it is', async () => {
@@ -351,6 +363,7 @@ describe('when the server cannot answer', () => {
     expect(kit.store.getState().snaps[0]!.shelfUpload).toBe(true); // waiting, not given up
     expect(shelfMock.requests).toHaveLength(0);
 
+    kit.advance(FIRST_OFFLINE_WAIT_MS);
     await kit.pipeline.flush(); // the connection is back
     await waitFor(() => expect(shelfMock.requests).toHaveLength(1));
     await settled(kit);
@@ -457,6 +470,233 @@ describe('when the scan ends or the screen goes', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(cardFor('Foundation')).toBeUndefined();
     expect(queueEmpty(kit)).toBe(true);
+  });
+});
+
+describe('the request itself is aborted', () => {
+  const held = async (kit: Kit) => {
+    shelfMock.hold = gate().hold;
+    kit.reader.script(readingOf([dune, mario]));
+    kit.pipeline.start();
+    await kit.pipeline.onSnap(await shelfShot(kit));
+    await waitFor(() => expect(shelfMock.requests).toHaveLength(1));
+  };
+
+  it.each<[string, (kit: Kit) => void]>([
+    ['the scanner is left', (kit) => kit.pipeline.stop()],
+    ['the scan is discarded', (kit) => kit.tray.getState().setSessionId(null)],
+    ['the scan is added', (kit) => kit.tray.getState().closeSession()],
+    ['the library is switched', (kit) => kit.pipeline.stop()],
+  ])('aborts the upload in flight when %s', async (_name, trigger) => {
+    const signals: AbortSignal[] = [];
+    const kit = shelfKit({ signals });
+    await held(kit);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBe(false);
+    trigger(kit);
+    expect(signals[0]!.aborted).toBe(true);
+    kit.pipeline.stop();
+  });
+
+  it('sends nothing at all for a snap whose scan is over before the send', async () => {
+    const kit = shelfKit();
+    kit.reader.script(readingOf([dune]));
+    server.use(http.post(/read-shelf$/, () => HttpResponse.error(), { once: true }));
+    await kit.pipeline.onSnap(await shelfShot(kit)); // not started: nobody watches the tray
+    await waitFor(() => expect(kit.files.reads).toHaveLength(1));
+    expect(kit.store.getState().snaps[0]!.shelfUpload).toBe(true);
+    const shrinks = kit.files.shrinks.length;
+
+    kit.tray.getState().setSessionId('c0000000-0000-4000-8000-0000000000c1'); // the scan ended meanwhile
+    kit.advance(FIRST_OFFLINE_WAIT_MS);
+    await kit.pipeline.flush();
+    await waitFor(() => expect(queueEmpty(kit)).toBe(true));
+    expect(shelfMock.requests).toHaveLength(0);
+    expect(kit.files.shrinks).toHaveLength(shrinks); // not even prepared
+  });
+});
+
+describe('one rule for a row the server skipped, by any path and in any order', () => {
+  const startHeld = async (kit: Kit) => {
+    const answer = gate();
+    shelfMock.hold = answer.hold;
+    kit.reader.script(readingOf([dune, mario]));
+    await kit.pipeline.onSnap(await shelfShot(kit));
+    await waitFor(() => expect(shelfMock.requests).toHaveLength(1));
+    const phoneRow = cardFor('Super Mario 64')!;
+    const other = cardFor('Dune')!;
+    const skipped = skippedByServer(kit.tray.getState().sessionId!, phoneRow);
+    shelfMock.rows = [skipped];
+    return { answer, phoneRow, other, skipped, sessionId: kit.tray.getState().sessionId! };
+  };
+  const event = (sessionId: string, row: CandidateDto) =>
+    routeSessionMessage(sessionId, { event: 'candidate.updated', id: String(row.changeSeq), data: JSON.stringify(row) });
+  const summary = (kit: Kit) => ({
+    cards: cards().map((c) => c.id).sort(),
+    skipped: skippedNow().map((c) => [c.id, c.skipReason]),
+    lines: lineStatuses(kit),
+  });
+  const expected = (s: Awaited<ReturnType<typeof startHeld>>) => ({
+    cards: [s.other.id],
+    skipped: [[s.phoneRow.id, 'server_did_not_see']],
+    lines: ['done', 'done'],
+  });
+
+  it('answer, then the event', async () => {
+    const kit = shelfKit();
+    const s = await startHeld(kit);
+    s.answer.release();
+    await settled(kit);
+    event(s.sessionId, s.skipped);
+    expect(summary(kit)).toEqual(expected(s));
+  });
+
+  it('the event, then the answer', async () => {
+    const kit = shelfKit();
+    const s = await startHeld(kit);
+    event(s.sessionId, s.skipped);
+    s.answer.release();
+    await settled(kit);
+    expect(summary(kit)).toEqual(expected(s));
+  });
+
+  it('the event twice', async () => {
+    const kit = shelfKit();
+    const s = await startHeld(kit);
+    event(s.sessionId, s.skipped);
+    event(s.sessionId, s.skipped);
+    s.answer.release();
+    await settled(kit);
+    event(s.sessionId, s.skipped);
+    expect(summary(kit)).toEqual(expected(s));
+  });
+
+  it('the snapshot after the answer', async () => {
+    const kit = shelfKit();
+    const s = await startHeld(kit);
+    s.answer.release();
+    await settled(kit);
+    mergeSnapshotIntoCards(scanMock.sessions.get(s.sessionId)!.candidates);
+    expect(summary(kit)).toEqual(expected(s));
+  });
+
+  it('the snapshot after the event', async () => {
+    const kit = shelfKit();
+    const s = await startHeld(kit);
+    event(s.sessionId, s.skipped);
+    mergeSnapshotIntoCards(scanMock.sessions.get(s.sessionId)!.candidates);
+    expect(summary(kit)).toEqual(expected(s));
+    s.answer.release();
+    await settled(kit);
+    expect(summary(kit)).toEqual(expected(s));
+  });
+
+  it('a replayed older copy of the row does not bring it back', async () => {
+    const kit = shelfKit();
+    const s = await startHeld(kit);
+    s.answer.release();
+    await settled(kit);
+    event(s.sessionId, { ...s.phoneRow, changeSeq: s.phoneRow.changeSeq } as CandidateDto);
+    expect(summary(kit)).toEqual(expected(s));
+  });
+
+  it('a row the person removed while the server was reading does not come back, and is not in Skipped', async () => {
+    const kit = shelfKit();
+    const s = await startHeld(kit);
+    kit.pipeline.removeItem(kit.store.getState().snaps[0]!.snapId, s.phoneRow.localId!);
+    expect(cardFor('Super Mario 64')).toBeUndefined();
+    s.answer.release();
+    await settled(kit);
+    expect(cardFor('Super Mario 64')).toBeUndefined();
+    expect(skippedNow()).toEqual([]);
+  });
+});
+
+describe('retries, the connection and the photo', () => {
+  it.each([
+    [0, 1_000],
+    [7, 7_000],
+    [600, 60_000],
+  ])('after a 503 with Retry-After %s, sends nothing before %s ms and one request after (clamped to 1 to 60 s)', async (retryAfter, waitMs) => {
+    const kit = shelfKit();
+    kit.reader.script(readingOf([dune]));
+    shelfMock.refusals = [{ status: 503, code: 'scan.reader_busy', retryAfter }];
+    await kit.pipeline.onSnap(await shelfShot(kit));
+    await waitFor(() => expect(shelfMock.requests).toHaveLength(1));
+    await waitFor(() => expect(kit.fs.strays()).toEqual([]));
+    kit.advance(waitMs - 1);
+    await kit.pipeline.flush();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(shelfMock.requests).toHaveLength(1);
+    kit.advance(1);
+    await kit.pipeline.flush();
+    await waitFor(() => expect(shelfMock.requests).toHaveLength(2));
+    await settled(kit);
+  });
+
+  it('does not count a failure to connect as a try: all 3 tries are still there afterwards', async () => {
+    const kit = shelfKit();
+    kit.reader.script(readingOf([dune]));
+    server.use(http.post(/read-shelf$/, () => HttpResponse.error(), { once: true }));
+    server.use(http.post(/read-shelf$/, () => HttpResponse.error(), { once: true }));
+    shelfMock.refusals = [1, 2, 3, 4].map(() => ({ status: 503, retryAfter: 1 }));
+    await kit.pipeline.onSnap(await shelfShot(kit));
+    await waitFor(() => expect(kit.files.reads).toHaveLength(1));
+    await waitFor(() => expect(kit.fs.strays()).toEqual([]));
+    kit.advance(FIRST_OFFLINE_WAIT_MS);
+    await kit.pipeline.flush(); // offline again
+    await waitFor(() => expect(kit.files.reads).toHaveLength(2));
+    await waitFor(() => expect(kit.fs.strays()).toEqual([]));
+    expect(shelfMock.requests).toHaveLength(0);
+
+    for (let i = 1; i <= 3; i += 1) {
+      kit.advance(120_000);
+      await kit.pipeline.flush();
+      await waitFor(() => expect(shelfMock.requests).toHaveLength(i));
+      await waitFor(() => expect(kit.fs.strays()).toEqual([]));
+    }
+    await settled(kit); // given up after the third try
+    kit.advance(120_000);
+    await kit.pipeline.flush();
+    expect(shelfMock.requests).toHaveLength(SHELF_MAX_TRIES);
+  });
+
+  it('does not send a shrunk photo over 4 MB, and gives that snap up quietly', async () => {
+    const kit = shelfKit();
+    kit.files.bytes = 4 * 1024 * 1024 + 1;
+    kit.reader.script(readingOf([dune]));
+    await kit.pipeline.onSnap(await shelfShot(kit));
+    await settled(kit);
+    expect(shelfMock.requests).toHaveLength(0);
+    expect(kit.files.discarded).toHaveLength(1); // the shrunk copy went
+    expect(kit.fs.strays()).toEqual([]);
+    expect(cards()).toHaveLength(1);
+  });
+
+  it('does not shrink and re-encode the photo again with every flush while there is no connection', async () => {
+    const kit = shelfKit();
+    kit.reader.script(readingOf([dune]));
+    server.use(http.post(/read-shelf$/, () => HttpResponse.error()));
+    await kit.pipeline.onSnap(await shelfShot(kit));
+    await waitFor(() => expect(kit.files.shrinks).toHaveLength(1));
+    for (let tick = 0; tick < 5; tick += 1) {
+      kit.advance(5_000);
+      await kit.pipeline.flush();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(kit.files.shrinks).toHaveLength(1);
+    expect(kit.store.getState().snaps[0]!.shelfUpload).toBe(true); // still waiting
+  });
+
+  it('never posts or deletes the stored still when the shrink hands it back unchanged', async () => {
+    const kit = shelfKit();
+    kit.files.shelf.shrink = async (photo) => ({ uri: photo.uri, width: photo.width, height: photo.height });
+    kit.reader.script(readingOf([dune]));
+    await kit.pipeline.onSnap(await shelfShot(kit));
+    await settled(kit);
+    expect(shelfMock.requests).toHaveLength(0);
+    expect(kit.files.discarded).toEqual([]);
+    expect(kit.fs.live()).toContain(kit.snaps.list()[0]!.stillUri);
   });
 });
 
