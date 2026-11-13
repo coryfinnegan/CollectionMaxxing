@@ -113,7 +113,7 @@ One vocabulary in `app/src/lib/haptics.ts` (silent on the web):
   the receipt, where it is the receipt's own voice.
 - A skipped row names what was read and why, in plain words (**Read twice**,
   **Nothing in the catalog matched**, **Already in your library**,
-  **On your wishlist**, **You skipped it** only for a row the person skipped), with one **Put back**
+  **On your wishlist**, **The server read this shelf differently**, **You skipped it** only for a row the person skipped), with one **Put back**
   action. The reasons live in `app/src/features/review/skipped.ts`.
 
 ## Banned patterns
