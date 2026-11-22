@@ -18,7 +18,7 @@ import { getDiscardOutbox } from '../session/discards';
 import { routeSessionMessage, mergeSnapshotIntoCards } from '../session/sessionApi';
 import { pictureLines } from './lines';
 import { restPipelineApi } from './pipelineApi';
-import { FIRST_OFFLINE_WAIT_MS, SHELF_MAX_TRIES, SHELF_TIMEOUT_MS } from './shelfUpgrade';
+import { FIRST_OFFLINE_WAIT_MS, forgetShelfUploads, resumeShelfUploads, SHELF_MAX_TRIES, SHELF_TIMEOUT_MS, stopShelfUploads } from './shelfUpgrade';
 import { SnapPipeline } from './SnapPipeline';
 import { FakeShelfFiles, makeKit, readItem, readingOf, resetKit } from './testKit';
 
@@ -410,7 +410,7 @@ describe('when the scan ends or the screen goes', () => {
     kit.pipeline.start();
     await kit.pipeline.onSnap(await shelfShot(kit));
     await waitFor(() => expect(shelfMock.requests).toHaveLength(1));
-    shelfMock.rows = [serverRow('Foundation', 7)];
+    shelfMock.rows = [serverRow('Foundation', 8)];
     return answer;
   };
 
@@ -426,17 +426,43 @@ describe('when the scan ends or the screen goes', () => {
     kit.pipeline.stop();
   });
 
-  it('stops a read in flight when the scanner is left, deleting the shrunk copy and drawing nothing', async () => {
+  it('keeps a read going when the scanner is left for Review, and its rows arrive there', async () => {
+    const kit = shelfKit();
+    const answer = await inFlight(kit);
+    kit.pipeline.stop(); // the scanner closes (router.replace('/review'))
+    answer.release();
+    await settled(kit);
+    await waitFor(() => expect(cardFor('Foundation')).toBeDefined());
+    expect(kit.fs.strays()).toEqual([]); // the shrunk copy is still deleted
+    expect(shelfMock.requests).toHaveLength(1);
+    expect(queueEmpty(kit)).toBe(true);
+  });
+
+  it('sends a read that was waiting when the scanner closed, without the scanner opening again', async () => {
+    const kit = shelfKit();
+    kit.reader.script(readingOf([dune]));
+    server.use(http.post(/read-shelf$/, () => HttpResponse.error(), { once: true }));
+    kit.pipeline.start();
+    await kit.pipeline.onSnap(await shelfShot(kit));
+    await waitFor(() => expect(kit.files.reads).toHaveLength(1));
+    kit.pipeline.stop();
+    kit.advance(FIRST_OFFLINE_WAIT_MS);
+    resumeShelfUploads(kit.deps); // the signed-in app's bridge, for the same library
+    await waitFor(() => expect(shelfMock.requests).toHaveLength(1));
+  });
+
+  it('does not start a second upload of a snap in flight when the scanner opens again', async () => {
     const kit = shelfKit();
     const answer = await inFlight(kit);
     kit.pipeline.stop();
+    const again = new SnapPipeline(kit.deps);
+    again.start();
+    await again.flush();
+    again.stop();
     answer.release();
     await settled(kit);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(cardFor('Foundation')).toBeUndefined();
-    expect(kit.fs.strays()).toEqual([]);
-    await kit.pipeline.flush();
-    expect(shelfMock.requests).toHaveLength(1); // and it does not start again
+    expect(shelfMock.requests).toHaveLength(1);
+    await waitFor(() => expect(cardFor('Foundation')).toBeDefined());
   });
 
   it('stops a read in flight when the scan is discarded', async () => {
@@ -465,7 +491,7 @@ describe('when the scan ends or the screen goes', () => {
   it('stops when the library is switched (the scanner for the old library goes)', async () => {
     const kit = shelfKit();
     const answer = await inFlight(kit);
-    kit.pipeline.stop(); // the same call a library switch makes
+    stopShelfUploads(kit.store, { libraryId: kit.deps.libraryId }); // what the bridge runs when another library is chosen
     answer.release();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(cardFor('Foundation')).toBeUndefined();
@@ -483,10 +509,12 @@ describe('the request itself is aborted', () => {
   };
 
   it.each<[string, (kit: Kit) => void]>([
-    ['the scanner is left', (kit) => kit.pipeline.stop()],
     ['the scan is discarded', (kit) => kit.tray.getState().setSessionId(null)],
     ['the scan is added', (kit) => kit.tray.getState().closeSession()],
-    ['the library is switched', (kit) => kit.pipeline.stop()],
+    ['the library is switched', (kit) => stopShelfUploads(kit.store, { libraryId: kit.deps.libraryId })],
+    ['signing out', (kit) => stopShelfUploads(kit.store)],
+    ['the scan is discarded after the scanner has closed', (kit) => (kit.pipeline.stop(), kit.tray.getState().setSessionId(null))],
+    ['the scan is added after the scanner has closed', (kit) => (kit.pipeline.stop(), kit.tray.getState().closeSession())],
   ])('aborts the upload in flight when %s', async (_name, trigger) => {
     const signals: AbortSignal[] = [];
     const kit = shelfKit({ signals });
@@ -730,7 +758,8 @@ describe('the queue', () => {
     expect(kit.store.getState().snaps[0]!.shelfUpload).toBe(true);
     expect(shelfMock.requests).toHaveLength(0);
 
-    // The app is killed: no stop(), no cleanup. A new pipeline opens on what was saved.
+    // The app is killed: no stop(), no cleanup, and nothing in memory. A new pipeline opens on what was saved.
+    forgetShelfUploads(kit.store);
     const returned = new SnapPipeline(kit.deps);
     returned.start();
     await waitFor(() => expect(shelfMock.requests).toHaveLength(1));
@@ -745,6 +774,7 @@ describe('the queue', () => {
     await kit.pipeline.onSnap(await shelfShot(kit));
     await waitFor(() => expect(kit.files.reads).toHaveLength(1));
     kit.files.enabled = false;
+    forgetShelfUploads(kit.store);
     const returned = new SnapPipeline(kit.deps);
     returned.start();
     await settled(kit);

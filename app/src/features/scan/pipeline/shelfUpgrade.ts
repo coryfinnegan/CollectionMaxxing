@@ -58,25 +58,53 @@ export class ShelfUpgrades {
   /** The sessions whose server answered "no reader": nothing more goes for them. */
   private readonly readerOff = new Set<string>();
 
+  private unsubscribeTray: (() => void) | undefined;
+
   constructor(
-    private readonly deps: PipelineDeps,
-    private readonly now: () => number,
-    private readonly isCurrent: (sessionId: string) => boolean,
+    private deps: PipelineDeps,
+    private now: () => number,
   ) {}
+
+  /** A screen that opens again hands over its own deps and clock; the queue, its tries and its waits stay. */
+  adopt(deps: PipelineDeps, now: () => number) {
+    this.deps = deps;
+    this.now = now;
+  }
+
+  /** Whether `sessionId` is still the scan this library's tray holds: not discarded, added or replaced. The screen being open does not matter. */
+  private isCurrent(sessionId: string) {
+    return this.deps.tray.getState().sessionId === sessionId;
+  }
 
   private get shelf() {
     return this.deps.shelf;
   }
 
-  /** The scanner opened (or reopened): a snap a killed app left waiting is sent now. */
+  /**
+   * The uploads run for as long as the scan is open, not as long as the scanner screen is: they start with the signed-in app (or
+   * the scanner, whichever is first) and a snap a killed app left waiting is sent now. Calling it again changes nothing for one
+   * already in flight.
+   */
   begin() {
     this.stopped = false;
+    // Discard and Add (on Review, with the scanner closed) end the scan these photos are sent for: an upload in flight stops with it.
+    this.unsubscribeTray?.();
+    this.unsubscribeTray = this.deps.tray.subscribe(() => this.recheck());
     this.run();
   }
 
-  /** Leaving the scanner or a library switch: what is in flight is aborted and nothing waits any more. */
+  /** The process is gone (tests only): the tray is no longer watched, and nothing is aborted or cleared, as a kill would leave it. */
+  detach() {
+    this.stopped = true;
+    this.unsubscribeTray?.();
+    this.unsubscribeTray = undefined;
+  }
+
+  /** A library switch or sign-out: what is in flight is aborted and nothing waits any more. Leaving the scanner does not call this. */
   stop() {
     this.stopped = true;
+    this.unsubscribeTray?.();
+    this.unsubscribeTray = undefined;
     this.inFlight?.controller.abort();
     this.clearAll();
   }
@@ -242,3 +270,41 @@ export class ShelfUpgrades {
   }
 }
 
+
+/**
+ * One queue per library, shared by the scanner's pipeline and the signed-in app's bridge, so a scanner that closes (or opens again)
+ * neither aborts a read nor starts a second one. Keyed by the pipeline store so a test's kit has a queue of its own.
+ */
+const shared = new WeakMap<object, Map<string, ShelfUpgrades>>();
+
+export function sharedShelfUpgrades(deps: PipelineDeps, now: () => number): ShelfUpgrades {
+  let byLibrary = shared.get(deps.store);
+  if (!byLibrary) shared.set(deps.store, (byLibrary = new Map()));
+  let upgrades = byLibrary.get(deps.libraryId);
+  if (upgrades) upgrades.adopt(deps, now);
+  else byLibrary.set(deps.libraryId, (upgrades = new ShelfUpgrades(deps, now)));
+  return upgrades;
+}
+
+/** The signed-in app starts (or picks up) this library's uploads: what a killed app left waiting is sent. */
+export function resumeShelfUploads(deps: PipelineDeps) {
+  sharedShelfUpgrades(deps, () => (deps.now ?? Date.now)()).begin();
+}
+
+/** A library switch or sign-out: every upload in flight (of `libraryId` only, or of all but `except`) is aborted and nothing waits. */
+export function stopShelfUploads(store: object, filter: { libraryId?: string; except?: string } = {}) {
+  for (const [libraryId, upgrades] of shared.get(store) ?? []) {
+    if ((filter.libraryId === undefined || filter.libraryId === libraryId) && filter.except !== libraryId) upgrades.stop();
+  }
+}
+
+/** Snaps or the tray changed outside the pipeline (a clear): an upload for what is gone is aborted. */
+export function recheckShelfUploads(store: object, libraryId?: string) {
+  for (const [id, upgrades] of shared.get(store) ?? []) if (libraryId === undefined || libraryId === id) upgrades.recheck();
+}
+
+/** What a process death does to the queue's memory (its tries and waits); only the saved snaps remain. For tests. */
+export function forgetShelfUploads(store: object) {
+  for (const upgrades of shared.get(store)?.values() ?? []) upgrades.detach();
+  shared.delete(store);
+}
