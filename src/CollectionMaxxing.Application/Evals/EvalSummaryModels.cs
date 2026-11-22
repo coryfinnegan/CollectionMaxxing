@@ -1,4 +1,6 @@
 #pragma warning disable CA1720 // "Single" is the set's name in the result file, not the System.Single type.
+using System.Text.Json.Serialization;
+
 namespace CollectionMaxxing.Application.Evals;
 
 /// <summary>Top-1 and top-3 for one item kind. Percentages are 0 to 100 (a "point" in the regression rule is one of these).</summary>
@@ -11,6 +13,7 @@ public sealed record KindMetrics(int Items, int Top1Hits, int Top3Hits, double? 
 /// <c>CompletenessAccuracyPct</c> divide by, kept so the regression check can tell how much chance moves each of them.
 /// <c>TimeToFirstResultsP50Ms</c> and <c>TimeToFirstResultsP95Ms</c> are the median and the 95th percentile, over the slice's photos that gave a correct
 /// item, of each photo's own capture to its results (the scanner's speed); <c>TotalTimeToTrustworthyMs</c> is the run's: the first capture to the last result.
+/// <c>SetAside</c> is how many shelf rows were set aside because they name an item the truth lists as also in the frame (null, and absent from the result file, when none were); it is not a compared metric.
 /// </summary>
 public sealed record SliceMetrics(
     int Photos,
@@ -58,7 +61,8 @@ public sealed record SliceMetrics(
     int ExcessUnreadable = 0,
     int TitleHits = 0,
     int PlatformChecks = 0,
-    int CompletenessChecks = 0);
+    int CompletenessChecks = 0,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? SetAside = null);
 
 public sealed record EngineSummary(
     SliceMetrics? Shelf,

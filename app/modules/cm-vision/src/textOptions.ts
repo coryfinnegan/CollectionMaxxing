@@ -5,6 +5,9 @@ export interface NativeTextOptions {
   level?: TextLevel;
   languageCorrection?: boolean;
   regions?: Rect[];
+  languages?: string[];
+  automaticallyDetectsLanguage?: boolean;
+  revision?: number;
 }
 
 /** A text read's options with every default written out, checked: regions are read upright, so they cannot be asked for in a turned pass. */
@@ -30,6 +33,9 @@ export function nativeTextOptions(options?: RecognizeTextOptions): NativeTextOpt
     ...(options?.level === undefined ? {} : { level: options.level }),
     ...(options?.languageCorrection === undefined ? {} : { languageCorrection: options.languageCorrection }),
     ...(options?.regions && options.regions.length > 0 ? { regions: options.regions } : {}),
+    ...(options?.languages === undefined ? {} : { languages: options.languages }),
+    ...(options?.automaticallyDetectsLanguage === undefined ? {} : { automaticallyDetectsLanguage: options.automaticallyDetectsLanguage }),
+    ...(options?.revision === undefined ? {} : { revision: options.revision }),
   };
   return Object.keys(named).length > 0 ? named : null;
 }

@@ -10,6 +10,7 @@ const mockNative = {
   extractItems: jest.fn<Promise<ReadItemsResult>, [string, ReadItemsOptions]>(),
   modelCapabilities: jest.fn(),
   recognizeText: jest.fn(),
+  describeTextRequest: jest.fn(),
   detectRectangles: jest.fn(),
   deviceStatus: jest.fn(),
   addListener: jest.fn((event: string, listener: Listener) => {
@@ -50,6 +51,7 @@ beforeEach(() => {
   mockNative.extractItems.mockReset();
   mockNative.modelCapabilities.mockReset();
   mockNative.recognizeText.mockReset();
+  mockNative.describeTextRequest.mockReset();
   mockNative.detectRectangles.mockReset();
 });
 
@@ -175,6 +177,35 @@ describe('the native wrapper', () => {
         ['file:///a.jpg', [0], { level: 'accurate', languageCorrection: false }],
         ['file:///a.jpg', [0], { level: 'fast', languageCorrection: true, regions: [quarter] }],
       ]);
+    });
+
+    it('sends named languages, language detection and a revision to Swift only when they are given', async () => {
+      mockNative.recognizeText.mockResolvedValue([]);
+      await visionEngine.recognizeText('file:///a.jpg', { orientations: [0, 90, 270, 180] });
+      await visionEngine.recognizeText('file:///a.jpg', { languages: ['en-US'] });
+      await visionEngine.recognizeText('file:///a.jpg', { automaticallyDetectsLanguage: false });
+      await visionEngine.recognizeText('file:///a.jpg', { revision: 2 });
+      await visionEngine.recognizeText('file:///a.jpg', { orientations: [0, 90, 270, 180], languages: ['en-US'], automaticallyDetectsLanguage: false, revision: 2 });
+      expect(mockNative.recognizeText.mock.calls).toEqual([
+        ['file:///a.jpg', [0, 90, 270, 180], null],
+        ['file:///a.jpg', [0], { languages: ['en-US'] }],
+        ['file:///a.jpg', [0], { automaticallyDetectsLanguage: false }],
+        ['file:///a.jpg', [0], { revision: 2 }],
+        ['file:///a.jpg', [0, 90, 270, 180], { languages: ['en-US'], automaticallyDetectsLanguage: false, revision: 2 }],
+      ]);
+    });
+
+    it('asks Swift to describe a text request with the same options a read would send, and none for the scanner\'s own', async () => {
+      const description = { revision: 3, defaultRevision: 3, supportedRevisions: [1, 2, 3], recognitionLanguages: ['en-US'], automaticallyDetectsLanguage: false, supportedRecognitionLanguages: [], osBuild: 'Version 27.3 (Build 23D5103)' };
+      mockNative.describeTextRequest.mockResolvedValue(description);
+      await expect(visionEngine.describeTextRequest()).resolves.toEqual(description);
+      await visionEngine.describeTextRequest({ orientations: [0, 90], languages: ['en-US'], revision: 2 });
+      expect(mockNative.describeTextRequest.mock.calls).toEqual([[null], [{ languages: ['en-US'], revision: 2 }]]);
+    });
+
+    it('passes on Swift\'s refusal of an unsupported revision', async () => {
+      mockNative.describeTextRequest.mockRejectedValue(new Error('Text recognition has no revision 9 (supported: 1, 2, 3)'));
+      await expect(visionEngine.describeTextRequest({ revision: 9 })).rejects.toThrow(/no revision 9/);
     });
 
     it('sends no regions for an empty list, which is the whole picture', async () => {
