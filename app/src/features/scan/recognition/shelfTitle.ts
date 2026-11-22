@@ -241,8 +241,15 @@ function titleCandidates(lines: TextLine[], tuning: LocalTuning): TextLine[] {
   const biggest = Math.max(0, ...stays.map(letters));
   const bigCodes = lines.filter((l) => readsAsSticker(l.text, tuning) && isCode(l.text) && !readsAsRole(l.text) && letters(l) > biggest);
   const candidates = lines.filter((l) => stays.includes(l) || bigCodes.includes(l));
-  return candidates.length > 0 ? candidates : lines;
+  const pool = candidates.length > 0 ? candidates : lines;
+  // A garbled line with a mixed-script word is no title when the piece has a line that is not (#841); it still counts as print.
+  const clean = pool.filter((l) => !hasMixedScriptWord(l.text));
+  return clean.length > 0 ? clean : pool;
 }
+
+/** A word holding both Latin letters and Cyrillic or Greek ones: "КOBOCOP", "дAROS". Accented Latin is no other script. */
+const hasMixedScriptWord = (text: string): boolean =>
+  text.split(/\s+/).some((w) => /\p{Script=Latin}/u.test(w) && /[\p{Script=Cyrillic}\p{Script=Greek}]/u.test(w));
 
 /** A trailing "BOOK 2" on a stack is the series number, not part of the title. */
 const isBookNumber = (text: string) => /^book\s*\d+$/i.test(text.trim());

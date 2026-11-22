@@ -358,3 +358,26 @@ describe('the engines send the shelf kind with the snap', () => {
     expect(reading.printKind).toBeUndefined();
   });
 });
+
+describe('shelfKind: a running time with one stray character at an end', () => {
+  it('A running time with one stray letter after it still names a film shelf', () => {
+    expect(onTwoSpines('1990/COLOR/135 MIN./PG/STEREO/D')).toBe('film');
+  });
+
+  it('A running time with one stray letter before it still names a film shelf', () => {
+    expect(onTwoSpines('D 92 Minutes Color')).toBe('film');
+  });
+
+  it('Two stray letters after a running time leave the line a title', () => {
+    expect(onTwoSpines('92 Minutes XY')).toBeUndefined();
+    expect(onTwoSpines('92 Minutes D E')).toBeUndefined();
+  });
+
+  it('A year with a stray letter is no running time', () => {
+    expect(onTwoSpines('1999 D')).toBeUndefined();
+  });
+
+  it('A title that holds a time and another word stays a title', () => {
+    expect(onTwoSpines('92 Minutes Later')).toBeUndefined();
+  });
+});
