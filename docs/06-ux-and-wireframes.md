@@ -206,6 +206,36 @@ This follows the Flippr scanner from the reel you shared: aim, get an instant **
 - Tapping a row opens the candidate sheet: alternatives, edit format/platform/edition, copies, condition.
 - The button count always equals the checked rows. After commit: toast "Added 11 items", with an **Undo** that lasts 10 seconds.
 
+**On a phone, Review is a walk, one card at a time (#833).** The list above is what a wide screen shows, and what **See all** opens on a phone.
+
+```
+┌──────────────────────────────────────┐
+│ ‹  Review                            │
+│ 4 of 12                       Undo   │
+│ ▓▓▓▓▓▓▓┏━━━━┓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │  ← your shelf photo: this spine lit,
+│ ▓▓▓▓▓▓▓┃    ┃▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │    the rest dimmed
+│ ▓▓▓▓▓▓▓┗━━━━┛▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │
+│ [ the spine, turned upright        ] │
+│ ┌────────┐  Suddenly You             │
+│ │ cover  │  Lisa Kleypas             │
+│ │ 160 pt │  2001 · Paperback         │
+│ └────────┘  Match 1 of 2             │
+│ ──────────────────────────────────── │
+│ ┌──────────────────────────────────┐ │
+│ │            Add this              │ │
+│ └──────────────────────────────────┘ │
+│ [Not this one]   Fix it              │
+└──────────────────────────────────────┘
+```
+
+- **Only the rows that need you are walked:** Pick one, Not found, and reads that are not sure enough to tick by themselves (every row from the server's shelf read is one). Confident rows wait on the end screen behind **Check them**.
+- **The photo band** shows your own photo zoomed onto the item: at least 48 pt wide with a few neighbours each side, an amber outline on all four sides, everything else dimmed, no bars. A row with no known place shows the whole photo and says "Found in this photo. The server didn't mark where." Under it, the spine is drawn upright so the title reads.
+- **The match** is a large cover with its facts. Swipe the cover for other matches ("Match 1 of 3"); a swipe never adds or skips. With no cover art the spine takes the space; with no photo either the card says "No photo for this one."
+- **Add this** tells the server at once (so a later server read cannot skip it), **Not this one** skips with Put back, **Fix it** opens the other matches and search, with the rest behind **More ways to fix**. **Undo** steps back one card. Answers are held for a moment after each tap, so a double tap cannot answer a card you have not seen.
+- **Order:** photos in the order taken; in a photo, one shelf at a time from the top, left to right, a stack top to bottom. Late rows from the server join the end: "Still reading 1 photo. Its finds join the end."
+- **The end screen:** "That's everything that needed you.", the counts ("25 matched by themselves. Check them", "3 you picked", "2 you own. Not added. Check them"), the skipped rows, Add to and Status, the one **Add 28 items** button, and **See all 33**. Add is never automatic.
+- The walk is saved per scan, so it survives the app being closed, and is wiped on sign-out. Tablet-width and wide windows keep the list (a layout rule, not a mode).
+
 ### M6 · Item detail
 
 ```
