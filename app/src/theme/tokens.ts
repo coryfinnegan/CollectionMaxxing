@@ -39,11 +39,13 @@ const schemeFixed = { laser: source.fixed.laser, receipt: source.fixed.receipt }
 export const lightColors: Colors = { ...resolve(source.roles.light), ...schemeFixed };
 export const darkColors: Colors = { ...resolve(source.roles.dark), ...schemeFixed };
 
-/** Fixed values that never change with the scheme: pure black/white and the camera scrim. */
+/** Fixed values that never change with the scheme: pure black/white, the camera scrim and the photo highlight. */
 export const fixed = {
   black: source.fixed.black,
   white: source.fixed.white,
   scrim: source.fixed.scrim,
+  /** The lit item on your own photo: bright amber in either scheme, since a photo is a dark surface (#833). */
+  highlight: source.fixed.highlight,
 };
 
 export const spacing = source.spacing;

@@ -16,7 +16,9 @@ resolves roles from it. Nothing invents a color anywhere else.
   `surface`, `ink`, `muted`, `line`, `control`, `accent`, `onAccent`,
   `sticker`, `stickerText`, `danger`, `receiptInk`, `receiptMuted`.
 - **Fixed** (scheme-independent): `laser` `#FF2D3A` (scan beam), `receipt`
-  `#FBFBF7`, `black`, `white`, `scrim` `rgba(0,0,0,0.5)`.
+  `#FBFBF7`, `black`, `white`, `scrim` `rgba(0,0,0,0.5)`, `highlight`
+  `#FFCA16` (the outline round the lit item on your own photo in Review: a
+  photo is a dark surface in either scheme, so the light accent is not used).
 - **Spacing:** xs 4, sm 8, md 12, lg 16, xl 24, xxl 32. **Radius:** sm 6,
   md 10, lg 16, pill 999.
 - Touch targets are at least 44pt. `WIDE_BREAKPOINT` (768) switches phone

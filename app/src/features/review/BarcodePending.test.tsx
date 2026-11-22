@@ -16,7 +16,7 @@ import { reviewMock } from '@/mocks/scan-review';
 import { renderWithProviders } from '@/test/render';
 import { canCommit, defaultChecked, groupOf, reviewable } from './grouping';
 import { createProvisionalOutbox, setProvisionalOutbox } from './provisionals';
-import { ReviewScreen } from './ReviewScreen';
+import { ReviewList as ReviewScreen } from './ReviewList';
 import { candidate, release } from './testData';
 
 const SESSION = 'a0000000-0000-4000-8000-000000000001';
