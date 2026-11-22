@@ -14,11 +14,12 @@ import { patchCandidate } from '@/features/review/api';
 import { reviewable } from '@/features/review/grouping';
 import { skippedRows } from '@/features/review/skipped';
 import { useCardsStore } from '../cards/cardsStore';
-import { getDiscardOutbox } from '../session/discards';
+import { createDiscardOutbox, getDiscardOutbox, setDiscardOutbox } from '../session/discards';
+import { MemoryKeyValueStore } from '../tray/trayStore';
 import { routeSessionMessage, mergeSnapshotIntoCards } from '../session/sessionApi';
 import { pictureLines } from './lines';
 import { restPipelineApi } from './pipelineApi';
-import { FIRST_OFFLINE_WAIT_MS, forgetShelfUploads, resumeShelfUploads, SHELF_MAX_TRIES, SHELF_TIMEOUT_MS, stopShelfUploads } from './shelfUpgrade';
+import { FIRST_OFFLINE_WAIT_MS, SHELF_MAX_TRIES, SHELF_TIMEOUT_MS, stopShelfUploads } from './shelfUpgrade';
 import { SnapPipeline } from './SnapPipeline';
 import { FakeShelfFiles, makeKit, readItem, readingOf, resetKit } from './testKit';
 
@@ -31,6 +32,9 @@ const gate = () => {
   const hold = new Promise<void>((resolve) => (release = resolve));
   return { hold, release };
 };
+
+/** Every queue a test made is stopped afterwards, so no timer outlives it. */
+const kitStores: object[] = [];
 
 /** A kit whose pipeline can send shelf photos. */
 function shelfKit(options: { enabled?: boolean; signals?: AbortSignal[] } = {}) {
@@ -45,6 +49,7 @@ function shelfKit(options: { enabled?: boolean; signals?: AbortSignal[] } = {}) 
     ? { ...kit.deps.api, readShelf: async (...args: Parameters<typeof restPipelineApi.readShelf>) => (signals.push(args[3]!), restPipelineApi.readShelf(...args)) }
     : kit.deps.api;
   const pipeline = new SnapPipeline({ ...kit.deps, api, now: () => clock });
+  kitStores.push(kit.store);
   return {
     ...kit,
     files,
@@ -113,8 +118,10 @@ beforeEach(() => {
   identifyMock.reset();
   shelfMock.reset();
   useCardsStore.getState().reset();
+  setDiscardOutbox(createDiscardOutbox({ storage: new MemoryKeyValueStore() })); // one test's discards never reach the next
 });
 afterEach(() => {
+  for (const store of kitStores.splice(0)) stopShelfUploads(store);
   resetKit();
   scanMock.reset();
   jest.restoreAllMocks();
@@ -410,7 +417,7 @@ describe('when the scan ends or the screen goes', () => {
     kit.pipeline.start();
     await kit.pipeline.onSnap(await shelfShot(kit));
     await waitFor(() => expect(shelfMock.requests).toHaveLength(1));
-    shelfMock.rows = [serverRow('Foundation', 8)];
+    shelfMock.rows = [serverRow('Foundation', 7)];
     return answer;
   };
 
@@ -438,17 +445,17 @@ describe('when the scan ends or the screen goes', () => {
     expect(queueEmpty(kit)).toBe(true);
   });
 
-  it('sends a read that was waiting when the scanner closed, without the scanner opening again', async () => {
+  it('tries a busy server again after the scanner has closed, on its own timer', async () => {
     const kit = shelfKit();
     kit.reader.script(readingOf([dune]));
-    server.use(http.post(/read-shelf$/, () => HttpResponse.error(), { once: true }));
+    shelfMock.refusals = [{ status: 503, code: 'scan.reader_busy', retryAfter: 1 }];
     kit.pipeline.start();
     await kit.pipeline.onSnap(await shelfShot(kit));
-    await waitFor(() => expect(kit.files.reads).toHaveLength(1));
-    kit.pipeline.stop();
-    kit.advance(FIRST_OFFLINE_WAIT_MS);
-    resumeShelfUploads(kit.deps); // the signed-in app's bridge, for the same library
     await waitFor(() => expect(shelfMock.requests).toHaveLength(1));
+    kit.pipeline.stop(); // no scanner: nothing calls flush any more
+    kit.advance(120_000);
+    await waitFor(() => expect(shelfMock.requests).toHaveLength(2), { timeout: 4_000 });
+    await settled(kit);
   });
 
   it('does not start a second upload of a snap in flight when the scanner opens again', async () => {
@@ -758,8 +765,8 @@ describe('the queue', () => {
     expect(kit.store.getState().snaps[0]!.shelfUpload).toBe(true);
     expect(shelfMock.requests).toHaveLength(0);
 
-    // The app is killed: no stop(), no cleanup, and nothing in memory. A new pipeline opens on what was saved.
-    forgetShelfUploads(kit.store);
+    // The app is killed: no stop(), no cleanup. A new pipeline opens on what was saved.
+    kit.advance(FIRST_OFFLINE_WAIT_MS);
     const returned = new SnapPipeline(kit.deps);
     returned.start();
     await waitFor(() => expect(shelfMock.requests).toHaveLength(1));
@@ -774,7 +781,7 @@ describe('the queue', () => {
     await kit.pipeline.onSnap(await shelfShot(kit));
     await waitFor(() => expect(kit.files.reads).toHaveLength(1));
     kit.files.enabled = false;
-    forgetShelfUploads(kit.store);
+    kit.advance(FIRST_OFFLINE_WAIT_MS);
     const returned = new SnapPipeline(kit.deps);
     returned.start();
     await settled(kit);

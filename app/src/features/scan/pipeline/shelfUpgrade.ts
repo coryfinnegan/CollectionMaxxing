@@ -59,6 +59,8 @@ export class ShelfUpgrades {
   private readonly readerOff = new Set<string>();
 
   private unsubscribeTray: (() => void) | undefined;
+  /** The one timer that runs the queue again when the oldest snap's wait (Retry-After, back-off) is over. */
+  private wake: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private deps: PipelineDeps,
@@ -93,18 +95,12 @@ export class ShelfUpgrades {
     this.run();
   }
 
-  /** The process is gone (tests only): the tray is no longer watched, and nothing is aborted or cleared, as a kill would leave it. */
-  detach() {
-    this.stopped = true;
-    this.unsubscribeTray?.();
-    this.unsubscribeTray = undefined;
-  }
-
   /** A library switch or sign-out: what is in flight is aborted and nothing waits any more. Leaving the scanner does not call this. */
   stop() {
     this.stopped = true;
     this.unsubscribeTray?.();
     this.unsubscribeTray = undefined;
+    this.cancelWake();
     this.inFlight?.controller.abort();
     this.clearAll();
   }
@@ -116,6 +112,23 @@ export class ShelfUpgrades {
     this.deps.store.getState().setShelfUpload(snapId, true);
     this.deps.snaps.pin(snapId); // the still stays until the upgrade is done or given up
     this.run();
+  }
+
+  /** Runs the queue again at `at` (ms since the epoch), replacing any earlier timer: the queue does not depend on a screen to try again. */
+  private wakeAt(at: number) {
+    this.cancelWake();
+    if (this.stopped) return;
+    const timer = setTimeout(() => {
+      this.wake = undefined;
+      this.run();
+    }, Math.max(0, at - this.now()));
+    (timer as { unref?: () => void }).unref?.(); // never keeps a Node process (a test) alive
+    this.wake = timer;
+  }
+
+  private cancelWake() {
+    if (this.wake !== undefined) clearTimeout(this.wake);
+    this.wake = undefined;
   }
 
   /** Sends what is due. Safe to call at any time; one upload runs at a time. */
@@ -158,9 +171,16 @@ export class ShelfUpgrades {
         this.clearAll(); // the server cannot read shelves (any more): Apple's read stands
         return;
       }
-      if ((this.retryAt.get(next.snapId) ?? 0) > this.now()) return; // the oldest waits out its Retry-After; nothing jumps the queue
+      const due = this.retryAt.get(next.snapId) ?? 0;
+      if (due > this.now()) {
+        this.wakeAt(due); // the oldest waits out its Retry-After; nothing jumps the queue
+        return;
+      }
       const outcome = await this.upload(next);
-      if (outcome === 'wait' || outcome === 'retry_later') return; // the next flush tries again
+      if (outcome === 'wait' || outcome === 'retry_later') {
+        this.wakeAt(this.retryAt.get(next.snapId) ?? this.now());
+        return;
+      }
       if (outcome === 'reader_off') {
         const sessionId = next.sessionId;
         if (sessionId) this.readerOff.add(sessionId);
@@ -286,6 +306,11 @@ export function sharedShelfUpgrades(deps: PipelineDeps, now: () => number): Shel
   return upgrades;
 }
 
+/** The app came back to the front: what is due is sent now (a timer may not have run while the app slept). */
+export function runShelfUploads(store: object, libraryId: string) {
+  shared.get(store)?.get(libraryId)?.run();
+}
+
 /** The signed-in app starts (or picks up) this library's uploads: what a killed app left waiting is sent. */
 export function resumeShelfUploads(deps: PipelineDeps) {
   sharedShelfUpgrades(deps, () => (deps.now ?? Date.now)()).begin();
@@ -301,10 +326,4 @@ export function stopShelfUploads(store: object, filter: { libraryId?: string; ex
 /** Snaps or the tray changed outside the pipeline (a clear): an upload for what is gone is aborted. */
 export function recheckShelfUploads(store: object, libraryId?: string) {
   for (const [id, upgrades] of shared.get(store) ?? []) if (libraryId === undefined || libraryId === id) upgrades.recheck();
-}
-
-/** What a process death does to the queue's memory (its tries and waits); only the saved snaps remain. For tests. */
-export function forgetShelfUploads(store: object) {
-  for (const upgrades of shared.get(store)?.values() ?? []) upgrades.detach();
-  shared.delete(store);
 }
