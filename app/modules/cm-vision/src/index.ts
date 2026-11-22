@@ -18,6 +18,7 @@ import type {
   RecognizeTextOptions,
   Rect,
   TextLine,
+  TextRequestDescription,
   VisionEngine,
 } from './types';
 
@@ -32,6 +33,8 @@ interface NativeCmVision {
   isAvailable(): Promise<boolean>;
   /** `options` is null for the scanner's own request. With regions, each box comes back inside its region and each line names its region's index. */
   recognizeText(imageUri: string, orientations: number[], options: NativeTextOptions | null): Promise<TextLine[]>;
+  /** `options` is null for the scanner's own request. Rejects for a revision the OS does not support. */
+  describeTextRequest(options: NativeTextOptions | null): Promise<TextRequestDescription>;
   detectRectangles(imageUri: string, options: DetectRectanglesOptions | null): Promise<Rect[]>;
   detectBarcodes(imageUri: string): Promise<DetectedCode[]>;
   featurePrint(imageUri: string, cropBox: Rect | null): Promise<FeaturePrint>;
@@ -64,6 +67,9 @@ class NativeVisionEngine implements VisionEngine {
     const { orientations, regions } = textRequest(options);
     const lines = await this.native().recognizeText(imageUri, orientations, nativeTextOptions(options));
     return regions.length > 0 ? linesInPicture(lines, regions) : lines;
+  }
+  describeTextRequest(options?: RecognizeTextOptions) {
+    return this.native().describeTextRequest(nativeTextOptions(options));
   }
   detectRectangles(imageUri: string, options?: DetectRectanglesOptions) {
     return this.native().detectRectangles(imageUri, options ?? null);

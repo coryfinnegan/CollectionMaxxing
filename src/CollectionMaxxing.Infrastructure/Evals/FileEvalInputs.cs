@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CollectionMaxxing.Application.Evals;
@@ -12,9 +13,10 @@ namespace CollectionMaxxing.Infrastructure.Evals;
 /// only, never served, never in the repo (<c>.gitignore</c> covers the folder). The file is written whole to a temp name and moved into place, so a stop
 /// half way leaves the previous readings; a newer run replaces them. Only someone who can write the folder can ask for a re-ground.
 /// </summary>
-public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileEvalInputs> logger, Action<string>? delete = null) : IEvalInputs
+public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileEvalInputs> logger, Action<string>? delete = null, Action<FileInfo>? deleteOld = null) : IEvalInputs
 {
     private const string InputsFile = "latest-inputs.json";
+    private const string DatedSuffix = "-inputs.json";
     private const string RequestFile = "reground.request";
     private const int MaxFileBytes = 32 * 1024 * 1024;
 
@@ -26,6 +28,7 @@ public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileE
     };
 
     private readonly Action<string> _delete = delete ?? File.Delete;
+    private readonly Action<FileInfo> _deleteOld = deleteOld ?? (file => file.Delete());
     private int _deleteFailureLogged;
 
     public bool IsConfigured => Folder() is not null;
@@ -34,11 +37,17 @@ public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileE
     {
         var folder = Folder() ?? throw new InvalidOperationException("Evals:ResultsPath is not set.");
         Directory.CreateDirectory(folder);
-        var path = Path.Combine(folder, InputsFile);
+        var text = JsonSerializer.Serialize(inputs, Json);
+        await WriteWholeAsync(Path.Combine(folder, InputsFile), text, cancellationToken);
+        await KeepDatedCopyAsync(folder, inputs, text, cancellationToken);
+    }
+
+    private static async Task WriteWholeAsync(string path, string text, CancellationToken cancellationToken)
+    {
         var temp = path + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
         try
         {
-            await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(inputs, Json), cancellationToken);
+            await File.WriteAllTextAsync(temp, text, cancellationToken);
             await EvalFileIo.MoveReplaceAsync(temp, path, cancellationToken);
         }
         finally
@@ -46,6 +55,82 @@ public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileE
             if (File.Exists(temp))
             {
                 File.Delete(temp);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Also keeps these readings under the dated result's own name stem plus <c>-inputs</c>, then drops the oldest dated copies beyond
+    /// <see cref="EvalsOptions.KeepDatedInputs"/>. The latest file is already written, so a failure here is logged and never fails the save.
+    /// </summary>
+    private async Task KeepDatedCopyAsync(string folder, KeptRunInputs inputs, string text, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var path = Path.Combine(folder, DatedStem(folder, inputs) + DatedSuffix);
+            await WriteWholeAsync(path, text, cancellationToken);
+            Prune(folder, path);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning("The dated copy of the phone's readings could not be kept ({Failure}).", exception.GetType().Name);
+        }
+    }
+
+    /// <summary>The name stem of this run's dated result file (found by its run id, so a numbered <c>-2</c> file matches), or the read date and run id when none is found.</summary>
+    private static string DatedStem(string folder, KeptRunInputs inputs)
+    {
+        foreach (var file in Directory.EnumerateFiles(folder, "????-??-??-*.json"))
+        {
+            var name = Path.GetFileName(file);
+            if (IsDatedInputs(name))
+            {
+                continue;
+            }
+
+            try
+            {
+                var info = new FileInfo(file);
+                if (info.Length <= MaxFileBytes && JsonSerializer.Deserialize<EvalSummary>(EvalFileIo.ReadAllText(file), Json)?.RunId == inputs.RunId)
+                {
+                    return Path.GetFileNameWithoutExtension(name);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+            {
+                // not this run's summary
+            }
+        }
+
+        return string.Create(CultureInfo.InvariantCulture, $"{inputs.ReadAt.UtcDateTime:yyyy-MM-dd}-{inputs.RunId}");
+    }
+
+    // Exactly the names this class writes: a date, a dash, a stem, "-inputs.json". Never latest-*, never a result summary.
+    private static bool IsDatedInputs(string name) =>
+        name.Length > 11 + DatedSuffix.Length
+        && name.EndsWith(DatedSuffix, StringComparison.Ordinal)
+        && name[10] == '-'
+        && DateOnly.TryParseExact(name[..10], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+
+    /// <summary>Keeps the copy just written plus the newest others, up to the setting. The copy just written is never a candidate, whatever any write time says.</summary>
+    private void Prune(string folder, string justWritten)
+    {
+        var keepOthers = Math.Max(1, options.Value.KeepDatedInputs) - 1;
+        var old = new DirectoryInfo(folder).EnumerateFiles("*" + DatedSuffix)
+            .Where(f => IsDatedInputs(f.Name) && !string.Equals(f.FullName, Path.GetFullPath(justWritten), StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .ThenByDescending(f => f.Name, StringComparer.Ordinal)
+            .Skip(keepOthers)
+            .ToList();
+        foreach (var file in old)
+        {
+            try
+            {
+                _deleteOld(file);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                logger.LogWarning("An old dated copy of the phone's readings could not be deleted ({Failure}).", exception.GetType().Name);
             }
         }
     }

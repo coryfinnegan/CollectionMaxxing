@@ -37,6 +37,20 @@ describe('index.web', () => {
     ).rejects.toThrow(/not available on the web/);
   });
 
+  it('answers that nothing is known about a text request, and never throws', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { visionEngine } = require('../index.web');
+    await expect(visionEngine.describeTextRequest({ revision: 9 })).resolves.toEqual({
+      revision: 0,
+      defaultRevision: 0,
+      supportedRevisions: [],
+      recognitionLanguages: [],
+      automaticallyDetectsLanguage: false,
+      supportedRecognitionLanguages: [],
+      osBuild: '',
+    });
+  });
+
   it('reports the model as unavailable and resolves a read with the unavailable outcome', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { visionEngine } = require('../index.web');
