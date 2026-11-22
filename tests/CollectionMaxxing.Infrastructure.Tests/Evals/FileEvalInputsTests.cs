@@ -75,6 +75,93 @@ public sealed class FileEvalInputsTests : IDisposable
         ],
         [new SkippedPhoto("c2", "evals.thermal_required")]);
 
+    private static EvalSummary Summary(string runId, string date, string sha) => new(
+        runId, date, sha, "cfg-1", new EvalDevice("iPhone18,1", "26.0", "0.3.0"), 1, [], new Dictionary<string, EngineSummary>(),
+        new GateTable("apple", "pass", [], null!), new RegressionCheck("ok", 0, []), new Dictionary<string, double>());
+
+    private async Task FinishRunAsync(string runId, string date = "2026-11-22", string title = "Star Fox 64")
+    {
+        var results = new FileEvalResults(Options.Create(new EvalsOptions { Enabled = true, ResultsPath = _golden.Results }));
+        await results.SaveAsync(Summary(runId, date, "abc1234"), new GroundedRun(runId, At, new EvalDevice("iPhone18,1", "26.0", "0.3.0"), "cfg-1", []), "# r", CancellationToken.None);
+        await Inputs().SaveAsync(Kept(runId, title), CancellationToken.None);
+    }
+
+    private List<string> Names(string pattern) => [.. Directory.GetFiles(_golden.Results, pattern).Select(f => Path.GetFileName(f)).Order(StringComparer.Ordinal)];
+
+    [Fact]
+    public async Task A_finished_run_keeps_a_dated_copy_of_its_readings_next_to_its_dated_result()
+    {
+        await FinishRunAsync("run1");
+
+        Names("*-inputs.json").ShouldBe(["2026-11-22-abc1234-inputs.json", "latest-inputs.json"]);
+        File.Exists(Path.Combine(_golden.Results, "2026-11-22-abc1234.json")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task The_latest_readings_file_is_still_written_byte_for_byte_the_same()
+    {
+        await FinishRunAsync("run1");
+
+        File.ReadAllBytes(Path.Combine(_golden.Results, "latest-inputs.json")).ShouldBe(File.ReadAllBytes(Path.Combine(_golden.Results, "2026-11-22-abc1234-inputs.json")));
+        Inputs().Load()!.RunId.ShouldBe("run1");
+    }
+
+    [Fact]
+    public async Task A_second_run_does_not_overwrite_the_first_runs_dated_copy()
+    {
+        await FinishRunAsync("run1", title: "Star Fox 64");
+        await FinishRunAsync("run2", title: "Zelda");
+
+        Names("2026-*-inputs.json").ShouldBe(["2026-11-22-abc1234-2-inputs.json", "2026-11-22-abc1234-inputs.json"]);
+        File.ReadAllText(Path.Combine(_golden.Results, "2026-11-22-abc1234-inputs.json")).ShouldContain("Star Fox 64");
+        File.ReadAllText(Path.Combine(_golden.Results, "2026-11-22-abc1234-2-inputs.json")).ShouldContain("Zelda");
+    }
+
+    [Fact]
+    public async Task Only_the_newest_twenty_dated_copies_are_kept_and_a_result_summary_is_never_deleted()
+    {
+        for (var day = 1; day <= 22; day++)
+        {
+            var date = $"2026-10-{day:00}";
+            await FinishRunAsync("run" + day, date);
+            File.SetLastWriteTimeUtc(Path.Combine(_golden.Results, date + "-abc1234-inputs.json"), At.UtcDateTime.AddDays(day));
+        }
+
+        var kept = Names("2026-*-inputs.json");
+        kept.Count.ShouldBe(20);
+        kept.ShouldNotContain("2026-10-01-abc1234-inputs.json");
+        kept.ShouldNotContain("2026-10-02-abc1234-inputs.json");
+        kept.ShouldContain("2026-10-22-abc1234-inputs.json");
+        Names("2026-*-abc1234.json").Count.ShouldBe(22);
+        File.Exists(Path.Combine(_golden.Results, "latest-inputs.json")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task The_number_of_dated_copies_kept_is_a_setting()
+    {
+        var inputs = new FileEvalInputs(Options.Create(new EvalsOptions { Enabled = true, ResultsPath = _golden.Results, KeepDatedInputs = 1 }), NullLogger<FileEvalInputs>.Instance);
+        var old = Path.Combine(_golden.Results, "2026-01-01-old-inputs.json");
+        await File.WriteAllTextAsync(old, "{}");
+        File.SetLastWriteTimeUtc(old, At.UtcDateTime.AddDays(-9));
+
+        await inputs.SaveAsync(Kept(), CancellationToken.None);
+
+        Names("2026-*-inputs.json").Count.ShouldBe(1);
+        File.Exists(old).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_reground_writes_no_dated_copy()
+    {
+        await FinishRunAsync("run1");
+        var before = Names("*");
+
+        Inputs().Load().ShouldNotBeNull(); // a re-ground only reads the kept readings
+        Inputs().TakeRegroundRequest().ShouldBeFalse();
+
+        Names("*").ShouldBe(before);
+    }
+
     [Fact]
     public async Task Readings_come_back_exactly_as_they_were_kept()
     {
@@ -112,7 +199,7 @@ public sealed class FileEvalInputsTests : IDisposable
         await Inputs().SaveAsync(Kept(), CancellationToken.None);
 
         File.Exists(Path.Combine(_golden.Results, "latest-inputs.json")).ShouldBeTrue();
-        Directory.GetFiles(_golden.Results).Select(Path.GetFileName).ShouldBe(["latest-inputs.json"]);
+        Directory.GetFiles(_golden.Results).Select(Path.GetFileName).Order(StringComparer.Ordinal).ShouldBe(["2026-10-31-run1-inputs.json", "latest-inputs.json"]);
     }
 
     [Fact]
