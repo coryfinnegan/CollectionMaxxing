@@ -12,7 +12,10 @@ namespace CollectionMaxxing.Application.Evals;
 public sealed record EvalMiss(string PhotoId, string Set, string Engine, string Kind, string? Truth, string? Read, string? CoverCue = null);
 
 /// <summary>What scoring a run gives: per-engine numbers and the misses behind them.</summary>
-public sealed record ScoredEngines(IReadOnlyDictionary<string, EngineSummary> Engines, IReadOnlyList<EvalMiss> Misses);
+public sealed record ScoredEngines(IReadOnlyDictionary<string, EngineSummary> Engines, IReadOnlyList<EvalMiss> Misses, IReadOnlyList<EvalSetAside>? SetAside = null);
+
+/// <summary>A shelf row the scorer set aside because its best release names an item the truth lists as also in the frame (outside the shelves it covers). Stays on the PC with the report: it carries a title.</summary>
+public sealed record EvalSetAside(string PhotoId, string Engine, string Title);
 
 /// <summary>
 /// Scores a grounded run against the truth files (docs/09, "AI evals"). Pure: no files, no database, no clock. A photo is scored
@@ -98,6 +101,7 @@ public static class EvalScorer
         public int CompletenessChecks;
         public int CompletenessHits;
         public int Invented;
+        public int SetAside;
         public int Refusals;
         public int Failures;
         public int Timeouts;
@@ -134,6 +138,7 @@ public static class EvalScorer
     public static ScoredEngines Score(IReadOnlyList<GroundedPhoto> photos, IReadOnlyDictionary<string, TruthEntry> truths)
     {
         var misses = new List<EvalMiss>();
+        var setAside = new List<EvalSetAside>();
         var engines = new SortedDictionary<string, EngineSummary>(StringComparer.Ordinal);
 
         // The combination of the model and Vision (report only) is scored like an engine the phone read, from the same rows.
@@ -144,13 +149,13 @@ public static class EvalScorer
             var shelf = entries.Where(e => e.Truth.Set == GoldenSets.Shelf).ToList();
             var single = entries.Where(e => e.Truth.Set == GoldenSets.Single).ToList();
             engines[byEngine.Key] = new EngineSummary(
-                shelf.Count == 0 ? null : Slice(shelf, misses),
-                single.Count == 0 ? null : Slice(single, misses),
+                shelf.Count == 0 ? null : Slice(shelf, misses, setAside),
+                single.Count == 0 ? null : Slice(single, misses, setAside),
                 byEngine.Last().ThermalState,
                 LateLatencyP50(single.Select(e => e.Photo).ToList()));
         }
 
-        return new ScoredEngines(engines, misses);
+        return new ScoredEngines(engines, misses, setAside);
     }
 
     /// <summary>The nearest-rank percentile (the smallest value that at least <paramref name="percent"/> of the values are at or below). Null for no values.</summary>
@@ -182,12 +187,12 @@ public static class EvalScorer
         return Percentile(late, 50);
     }
 
-    private static SliceMetrics Slice(List<(GroundedPhoto Photo, TruthEntry Truth)> entries, List<EvalMiss> misses)
+    private static SliceMetrics Slice(List<(GroundedPhoto Photo, TruthEntry Truth)> entries, List<EvalMiss> misses, List<EvalSetAside> setAside)
     {
         var tally = new Tally();
         foreach (var (photo, truth) in entries)
         {
-            ScorePhoto(photo, truth, tally, misses);
+            ScorePhoto(photo, truth, tally, misses, setAside);
         }
 
         var kinds = tally.Kinds.OrderBy(k => k.Key, StringComparer.Ordinal).ToDictionary(
@@ -244,7 +249,8 @@ public static class EvalScorer
             tally.ExcessUnreadable,
             tally.TitleHits,
             tally.PlatformChecks,
-            tally.CompletenessChecks);
+            tally.CompletenessChecks,
+            tally.SetAside == 0 ? null : tally.SetAside);
     }
 
     private static long? SpanMs(DateTimeOffset? from, DateTimeOffset? to) =>
@@ -268,10 +274,48 @@ public static class EvalScorer
         ? [.. truth.Shelf!.Items.Select(i => new TruthItem(i.Title, i.Platform, i.MediaType.ToLowerInvariant(), null, EvalKinds.Key(i.MediaType), i.AlsoTitled))]
         : [new TruthItem(truth.Single!.Title, truth.Single.Platform, null, truth.Single.Format.ToLowerInvariant(), truth.Single.Kind, truth.Single.AlsoTitled)];
 
-    private static void ScorePhoto(GroundedPhoto photo, TruthEntry truth, Tally tally, List<EvalMiss> misses)
+    private static List<TruthItem> AlsoInFrameOf(TruthEntry truth) => truth.Set == GoldenSets.Shelf && truth.Shelf!.AlsoInFrame is { } listed
+        ? [.. listed.Select(i => new TruthItem(i.Title, i.Platform, i.MediaType.ToLowerInvariant(), null, EvalKinds.Key(i.MediaType), i.AlsoTitled))]
+        : [];
+
+    /// <summary>
+    /// The rows of a shelf photo to set aside: those whose best release names an item the truth lists as also in the frame. A row that
+    /// names a truth item stays (a truth item always wins), and each listing sets aside at most one row (the first in reading order).
+    /// </summary>
+    private static HashSet<GroundedItem> SetAsideRows(IReadOnlyList<GroundedItem> items, List<TruthItem> truthItems, List<TruthItem> alsoInFrame)
+    {
+        var rows = new HashSet<GroundedItem>(ReferenceEqualityComparer.Instance);
+        if (alsoInFrame.Count == 0)
+        {
+            return rows;
+        }
+
+        var used = new bool[alsoInFrame.Count];
+        foreach (var item in items)
+        {
+            if (item.Best is not { } best || IsUnguessedProvisional(item) || truthItems.Any(t => TitleMatch(t, best)))
+            {
+                continue;
+            }
+
+            if (FirstUnclaimed(alsoInFrame, used, t => FullMatch(t, best)) is { } listed)
+            {
+                used[listed] = true;
+                rows.Add(item);
+            }
+        }
+
+        return rows;
+    }
+
+    private static void ScorePhoto(GroundedPhoto photo, TruthEntry truth, Tally tally, List<EvalMiss> misses, List<EvalSetAside> setAside)
     {
         var truthItems = TruthItemsOf(truth);
-        var items = photo.Outcome == Ok ? photo.Items : [];
+        var everything = photo.Outcome == Ok ? photo.Items : [];
+        var aside = SetAsideRows(everything, truthItems, AlsoInFrameOf(truth));
+        var items = aside.Count == 0 ? everything : [.. everything.Where(i => !aside.Contains(i))];
+        tally.SetAside += aside.Count;
+        setAside.AddRange(everything.Where(aside.Contains).Select(i => new EvalSetAside(photo.PhotoId, photo.Engine, i.Best!.Title)));
         tally.Photos++;
         tally.TruthItems += truthItems.Count;
         tally.Predicted += items.Count;
@@ -344,8 +388,8 @@ public static class EvalScorer
             // Reported unreadable + resolved + provisional must equal what was captured; reads sharing a segment count once.
             var segments = photo.UnreadableCount
                 + (photo.SkippedSegments ?? 0) // read, then skipped (a fragment or an unfound spine): accounted for, as the combined row's CapturedOf does
-                + items.Count(i => i.SegmentId is null)
-                + items.Where(i => i.SegmentId is not null).Select(i => i.SegmentId!).Distinct(StringComparer.Ordinal).Count();
+                + everything.Count(i => i.SegmentId is null)
+                + everything.Where(i => i.SegmentId is not null).Select(i => i.SegmentId!).Distinct(StringComparer.Ordinal).Count();
             var gap = Math.Abs(photo.CapturedCount - segments);
             if (gap > 0)
             {
