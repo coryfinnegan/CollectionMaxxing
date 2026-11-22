@@ -73,7 +73,10 @@ public class EditionPhraseSearchTests(PostgresFixture db) : DatabaseTest(db)
     [InlineData("HIGHLANDER DIRECTOR'S CUT")]
     public async Task A_film_read_with_an_edition_phrase_after_its_title_is_matched_as_the_title_alone(string read)
     {
-        using var host = ProviderHost.Create(Db);
+        // The host's default 5 s attempt timeout is real time: on a busy machine the first call to the mock (a cold server and HTTP client)
+        // can outlast it, the adapter retries, and the log then holds the same search two or three times (seen: 2 and 3 searches in
+        // 2 of 50 runs). This test is about which searches are made, not about retries, so an attempt is given time to finish.
+        using var host = ProviderHost.Create(Db, settings: new() { ["Providers:Resilience:AttemptTimeout"] = "00:01:00" });
         Answer(host, "/3/search/movie", Highlanders, "HIGHLANDER", priority: 1);
         Answer(host, "/3/search/movie", Cuts, "CUT", priority: 1);
         Answer(host, "/3/search/movie", Nothing);
@@ -85,6 +88,10 @@ public class EditionPhraseSearchTests(PostgresFixture db) : DatabaseTest(db)
         // As the server's reader sends it: a title and a kind, no text (ServerReadInput), cleaned as every read is.
         var facts = ReadSanitizer.Sanitize(new ReadFacts(read, null, null, null, null, WorkKind.Film, null, null, null));
         var answer = await grounding.GroundAsync(facts, ScoringProfileKind.ShelfSpine, TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        // WireMock logs a request when its response is finished, which can be a moment after the client has the answer: wait for the
+        // one search the read is expected to make before reading the log, so the list below is whole.
+        (await host.WaitForRequestsAsync("/3/search/movie", 1)).ShouldBe(1);
 
         answer.Options[0].Provider!.Title.ShouldBe("Highlander");
         answer.Options[0].Provider!.Year.ShouldBe(1986);
