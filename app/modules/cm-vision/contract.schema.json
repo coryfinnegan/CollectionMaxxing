@@ -249,6 +249,52 @@
         }
       }
     },
+    "TextRequestDescription": {
+      "description": "What a text request is on this OS, built from the options a read would take and not performed.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "defaultRevision",
+        "supportedRevisions",
+        "recognitionLanguages",
+        "automaticallyDetectsLanguage",
+        "supportedRecognitionLanguages",
+        "osBuild"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer"
+        },
+        "defaultRevision": {
+          "type": "integer"
+        },
+        "supportedRevisions": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "recognitionLanguages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "automaticallyDetectsLanguage": {
+          "type": "boolean"
+        },
+        "supportedRecognitionLanguages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "osBuild": {
+          "type": "string"
+        }
+      }
+    },
     "FixtureRecord": {
       "type": "object",
       "additionalProperties": false,

@@ -1,4 +1,4 @@
-import type { DeviceStatus, ModelCapabilities, ReadItemsResult, VisionEngine } from './types';
+import type { DeviceStatus, ModelCapabilities, ReadItemsResult, TextRequestDescription, VisionEngine } from './types';
 
 const message = 'Apple Vision is not available on the web. Recognition runs on the iPhone app only.';
 
@@ -9,6 +9,18 @@ export class UnavailableVisionEngine implements VisionEngine {
   }
   async recognizeText(): Promise<never> {
     throw new Error(message);
+  }
+  /** Nothing is read on the web, so nothing is known about a request. */
+  async describeTextRequest(): Promise<TextRequestDescription> {
+    return {
+      revision: 0,
+      defaultRevision: 0,
+      supportedRevisions: [],
+      recognitionLanguages: [],
+      automaticallyDetectsLanguage: false,
+      supportedRecognitionLanguages: [],
+      osBuild: '',
+    };
   }
   async detectRectangles(): Promise<never> {
     throw new Error(message);

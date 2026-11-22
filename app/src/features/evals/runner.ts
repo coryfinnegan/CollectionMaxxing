@@ -13,7 +13,7 @@ import { modelSchemaFor } from '@/features/scan/recognition/modelSchema';
 import { type EngineName, type OcrReading, type ReadItem, type ReadOptions, type RecognitionEngine, type SnapReading, type Still } from '@/features/scan/recognition/types';
 import type { ShotKind } from '@/features/scan/shotkind/shotKind';
 import type { KeyValueStore } from '@/features/scan/tray/trayStore';
-import type { ThermalState } from '@/native/cm-vision';
+import type { RecognizeTextOptions, TextLine, TextRequestDescription, ThermalState } from '@/native/cm-vision';
 import { RUN_GONE_CODES, type EvalApi } from './api';
 import { EvalOutbox, type PendingPhoto } from './outbox';
 
@@ -87,6 +87,10 @@ export interface EvalRunnerDeps {
   config: { refresh(): Promise<unknown>; current(): RecognitionSettings };
   vision: {
     deviceStatus(): Promise<{ thermalState: ThermalState; osVersion: string; buildNumber?: string }>;
+    /** Reads the text of a picture again for the reader probes (`readerProbes`), after the rows are read. */
+    recognizeText(imageUri: string, options?: RecognizeTextOptions): Promise<TextLine[]>;
+    /** What a text request with these settings is on this OS, without reading. Rejects for a revision the OS does not support. */
+    describeTextRequest(options?: RecognizeTextOptions): Promise<TextRequestDescription>;
   };
   device: { model: string; appVersion: string };
   /** Holds the screen awake. The runner holds it only while it is reading in the foreground: never paused, waiting for the PC or while the PC scores. */
@@ -208,6 +212,84 @@ export function ocrRecord(ocr: OcrReading | undefined): Pick<EvalPhotoResult, 'o
       height: unit(l.box.height),
     })),
     ocrPieces: ocr.pieces.map((piece) => piece.filter((index) => index >= 0 && index < lines.length)).filter((piece) => piece.length > 0),
+  };
+}
+
+/** What the server accepts of the probes: at most this many, each with at most this many lines (text up to `MAX_OCR_TEXT`), a name of at most this many characters and a time up to this many milliseconds. */
+export const MAX_OCR_PROBES = 4;
+export const MAX_PROBE_LINES = 1500;
+export const MAX_PROBE_NAME = 64;
+export const MAX_PROBE_MS = 3_600_000;
+
+type OcrProbe = NonNullable<EvalPhotoResult['ocrProbes']>[number];
+
+/** The four orientations every probe reads in one native call: the scanner's three passes and the upside-down one, raw. */
+export const PROBE_ORIENTATIONS: NonNullable<RecognizeTextOptions['orientations']> = [0, 90, 270, 180];
+
+/** The language the pinned probes read. */
+export const PROBE_LANGUAGES = ['en-US'];
+
+/** The reader settings a probe pins (none: the scanner's own request). */
+type ReaderSettings = Pick<RecognizeTextOptions, 'languages' | 'automaticallyDetectsLanguage' | 'revision'>;
+
+/**
+ * The extra reads of each photo, none of them the scanner's own settings except the control. They are read once, after the timed rows, from the scaled
+ * still the rows read, and only the record reads them: the PC keeps them with the run's inputs, so a reader setting can be tried on real pictures later
+ * without the phone, and never scores them. `rP` is the highest supported revision below the default, found when the probes run; the probes that need
+ * one are left out when there is none.
+ */
+export const READER_PROBES: readonly { name: 'd' | 'en' | 'rP' | 'enrP'; pinsLanguage: boolean; earlierRevision: boolean; control?: true }[] = [
+  // The control: the scanner's own request. Its lines carry the confidence and the pass that the row's `ocrLines` drop, and its name carries the OS build.
+  { name: 'd', pinsLanguage: false, earlierRevision: false, control: true },
+  // English only, language detection off: does pinning the language restore the earlier reading?
+  { name: 'en', pinsLanguage: true, earlierRevision: false },
+  // The revision just below the default: is the OS's default a newer model?
+  { name: 'rP', pinsLanguage: false, earlierRevision: true },
+  // Both at once.
+  { name: 'enrP', pinsLanguage: true, earlierRevision: true },
+];
+
+/** The build the OS says ("Version 27.3 (Build 23D5103)" is 23D5103), or none. */
+const osBuildOf = (osBuild: string): string | undefined => /\bBuild\s+([0-9A-Za-z]+)/.exec(osBuild)?.[1];
+
+/**
+ * A probe's name: the request as the OS reported it, in at most 64 characters. `<name> r<revision>/<default> s<supported, joined> l=<first language>+<more>
+ * a<0 or 1> <still width>x<height>`, and for the control the OS build too. For example `d r3/3 s123 l=en-US+0 a0 2576x1932 23D5103`.
+ */
+export function probeName(name: string, request: TextRequestDescription, still: Pick<Still, 'width' | 'height'>, control = false): string {
+  const [first, ...more] = request.recognitionLanguages;
+  const build = control ? osBuildOf(request.osBuild) : undefined;
+  return [
+    name,
+    `r${request.revision}/${request.defaultRevision}`,
+    `s${request.supportedRevisions.join('')}`,
+    `l=${first ?? '-'}+${more.length}`,
+    `a${request.automaticallyDetectsLanguage ? 1 : 0}`,
+    `${still.width}x${still.height}`,
+    ...(build ? [build] : []),
+  ]
+    .join(' ')
+    .slice(0, MAX_PROBE_NAME);
+}
+
+/** One probe shaped for the upload, cut to the PC's limits (a box or confidence a hair outside 0 to 1 is pulled in) instead of losing the photo. */
+export function probeRecord(name: string, ms: number, lines: TextLine[]): OcrProbe {
+  return {
+    name,
+    ms: Math.min(MAX_PROBE_MS, Math.max(0, Math.round(ms))),
+    // A line whose box is not a finite number is dropped, and a confidence that is not one is written as 0: NaN would reach the PC as null and refuse the photo.
+    lines: lines
+      .filter((l) => [l.box.x, l.box.y, l.box.width, l.box.height].every(Number.isFinite))
+      .slice(0, MAX_PROBE_LINES)
+      .map((l) => ({
+        text: l.text.slice(0, MAX_OCR_TEXT),
+        confidence: Number.isFinite(l.confidence) ? unit(l.confidence) : 0,
+        pass: l.pass ?? 0,
+        x: unit(l.box.x),
+        y: unit(l.box.y),
+        width: unit(l.box.width),
+        height: unit(l.box.height),
+      })),
   };
 }
 
@@ -634,10 +716,53 @@ export class EvalRunner {
         if (this.epoch !== epoch) return;
       }
       const results = ENGINES.map(({ engine }) => read.get(engine) as EvalPhotoResult);
+      // The probes come last, outside every row's timing, on every photo. The scanner's own read is already done and recorded.
+      const probes = await this.probe(still, epoch);
+      if (this.epoch !== epoch) return;
+      const vision = results.find((r) => r.engine === 'vision_pipeline');
+      if (vision && probes.length > 0) vision.ocrProbes = probes;
       this.keep({ photoId: photo.id, results });
     } finally {
       await discardPicture(still.uri);
     }
+  }
+
+  /**
+   * Reads the scaled still's text once more for each of `READER_PROBES`, one after another, raw in four orientations, and keeps each with the time it took.
+   * The control is the scanner's own request; the others pin the language, the revision just below the default, or both. A probe whose settings the OS
+   * refuses (`describeTextRequest` rejects) or whose read throws is left out. The owner's stop and the app leaving end the list where it is (the photo is
+   * then kept with what was read, or read again, as it is for a row).
+   */
+  private async probe(still: Still, epoch: number): Promise<OcrProbe[]> {
+    const probes: OcrProbe[] = [];
+    if (this.stopRequested || this.epoch !== epoch) return probes;
+    let defaults: TextRequestDescription | undefined;
+    try {
+      defaults = await this.deps.vision.describeTextRequest();
+    } catch {
+      // Without the control's own description the control is left out and no earlier revision is known; `en` still describes itself.
+    }
+    const lower = defaults ? defaults.supportedRevisions.filter((revision) => revision < defaults.defaultRevision) : [];
+    const earlier = lower.length > 0 ? Math.max(...lower) : undefined;
+    for (const { name, pinsLanguage, earlierRevision, control } of READER_PROBES) {
+      // As before a row: a stop ends the list, a pause holds the next probe until the owner resumes.
+      if (this.stopRequested || !(await this.checkpoint()) || this.epoch !== epoch) break;
+      if (earlierRevision && earlier === undefined) continue; // no earlier revision: the revision did not change, only the language can help
+      const settings: ReaderSettings = {
+        ...(pinsLanguage ? { languages: PROBE_LANGUAGES, automaticallyDetectsLanguage: false } : {}),
+        ...(earlierRevision ? { revision: earlier } : {}),
+      };
+      try {
+        const request = control ? defaults : await this.deps.vision.describeTextRequest(settings);
+        if (!request) continue;
+        const started = this.now();
+        const lines = await this.deps.vision.recognizeText(still.uri, { ...settings, orientations: PROBE_ORIENTATIONS });
+        probes.push(probeRecord(probeName(name, request, still, control), this.now() - started, lines));
+      } catch {
+        // Nothing but the record reads a probe: it is left out, and the photo's rows are as they were.
+      }
+    }
+    return probes;
   }
 
   private async readWith(

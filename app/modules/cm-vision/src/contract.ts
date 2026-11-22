@@ -1,4 +1,4 @@
-import type { DetectedCode, DeviceStatus, FeaturePrint, ModelCapabilities, ModelItem, ReadItemsResult, Rect, TextLine } from './types';
+import type { DetectedCode, DeviceStatus, FeaturePrint, ModelCapabilities, ModelItem, ReadItemsResult, Rect, TextLine, TextRequestDescription } from './types';
 
 // The runtime key lists below are compared with contract.schema.json (and the Swift builders)
 // by Jest. The `true` assignments fail to type-check when a field is added to an interface
@@ -13,6 +13,9 @@ export const MODEL_ITEM_KEYS = [
 export const MODEL_CAPABILITIES_KEYS = ['available', 'vision', 'guidedGeneration', 'contextSize', 'reason'] as const;
 export const READ_ITEMS_RESULT_KEYS = ['items', 'unreadableCount', 'outcome', 'elapsedMs'] as const;
 export const DEVICE_STATUS_KEYS = ['thermalState', 'osVersion', 'buildNumber'] as const;
+export const TEXT_REQUEST_DESCRIPTION_KEYS = [
+  'revision', 'defaultRevision', 'supportedRevisions', 'recognitionLanguages', 'automaticallyDetectsLanguage', 'supportedRecognitionLanguages', 'osBuild',
+] as const;
 
 /** Keys that may be absent (the schema's `required` list leaves them out). */
 export const OPTIONAL_KEYS: Record<string, readonly string[]> = {
@@ -33,7 +36,8 @@ export const keyListsAreComplete: [
   Unlisted<ModelCapabilities, (typeof MODEL_CAPABILITIES_KEYS)[number]> extends never ? true : false,
   Unlisted<ReadItemsResult, (typeof READ_ITEMS_RESULT_KEYS)[number]> extends never ? true : false,
   Unlisted<DeviceStatus, (typeof DEVICE_STATUS_KEYS)[number]> extends never ? true : false,
-] = [true, true, true, true, true, true, true, true];
+  Unlisted<TextRequestDescription, (typeof TEXT_REQUEST_DESCRIPTION_KEYS)[number]> extends never ? true : false,
+] = [true, true, true, true, true, true, true, true, true];
 
 /** Keys by schema definition name. */
 export const CONTRACT_KEYS = {
@@ -45,4 +49,5 @@ export const CONTRACT_KEYS = {
   ModelCapabilities: MODEL_CAPABILITIES_KEYS,
   ReadItemsResult: READ_ITEMS_RESULT_KEYS,
   DeviceStatus: DEVICE_STATUS_KEYS,
+  TextRequestDescription: TEXT_REQUEST_DESCRIPTION_KEYS,
 } as const;
