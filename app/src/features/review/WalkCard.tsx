@@ -167,7 +167,7 @@ export function WalkCard({
   const large = fontScale >= LARGE_TEXT_SCALE;
   // No cover art: a cover shot fills the slot with the phone's own picture; a spine lets the strip grow instead.
   const noArt = !!option && !option.coverUri;
-  const ownPicture = noArt && still && box && !tall ? <SpineStrip still={still} box={box} max={{ width: large ? COVER_WIDTH_LARGE_TEXT : COVER_WIDTH, height: 240 }} label="Your photo" /> : null;
+  const ownPicture = noArt && still && box && !tall ? <SpineStrip still={still} box={box} max={{ width: large ? COVER_WIDTH_LARGE_TEXT : COVER_WIDTH, height: 240 }} pass={place?.pass} label="Your photo" /> : null;
   // No cover art and no picture of it at all: the card is the words, set out on purpose.
   const bare = !still && !showing.cropUri && options.length <= 1 && !option?.coverUri;
   const stripMax = { width: inner, height: noArt || notFound ? STRIP_MAX_NO_COVER : STRIP_MAX };
@@ -242,7 +242,7 @@ export function WalkCard({
           {place && !still ? <Text tone="muted">{PHOTO_GONE}</Text> : null}
           {place?.still && !place.box ? <Text tone="muted">{UNMARKED_LINE}</Text> : null}
           {showing.serverSkipped ? <Text tone="muted">{SERVER_SKIPPED_LINE}</Text> : null}
-          {still && box && !ownPicture ? <SpineStrip still={still} box={box} max={stripMax} /> : null}
+          {still && box && !ownPicture ? <SpineStrip still={still} box={box} max={stripMax} pass={place?.pass} /> : null}
           {!still && showing.cropUri ? <CropStrip title={title} uri={showing.cropUri} /> : null}
 
           {option ? (

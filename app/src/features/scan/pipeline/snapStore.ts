@@ -1,7 +1,7 @@
 // The on-phone snap store (docs/02 "Privacy"): for each picture the resized still, and for each item its box, its read
 // text and a small crop. It lives in the app's temporary storage, is trimmed to a retention limit, is emptied by Discard,
 // sign-out and unpair, and is never uploaded: CAM-3c (the photo beside the match) and CAM-3d (Import) read it from here.
-import type { Rect } from '@/native/cm-vision';
+import type { Rect, TextOrientation } from '@/native/cm-vision';
 import { MemoryKeyValueStore, type KeyValueStore } from '@/features/scan/tray/trayStore';
 
 /** A few days of snaps is plenty to open a result or fix an item; older pictures are not worth keeping. */
@@ -13,6 +13,8 @@ export interface StoredItem {
   text: string;
   /** Normalized 0..1 on the still, origin top-left. */
   box?: Rect;
+  /** The Vision pass that read this item's title line; absent on items stored before. */
+  pass?: TextOrientation;
   /** The crop, as a file in the store. */
   cropUri?: string;
 }
@@ -194,7 +196,7 @@ export class SnapStore {
   }
 
   /** Records an item's box and read text, and keeps its crop. A missing crop is fine. */
-  saveItem(snapId: string, item: { localId: string; text: string; box?: Rect }, cropFromUri?: string): Promise<StoredItem | undefined> {
+  saveItem(snapId: string, item: { localId: string; text: string; box?: Rect; pass?: TextOrientation }, cropFromUri?: string): Promise<StoredItem | undefined> {
     return this.run(async () => {
       const snap = this.get(snapId);
       if (!snap) return undefined;
@@ -210,7 +212,7 @@ export class SnapStore {
       }
       // A wipe may have happened while the crop was being copied.
       if (!this.get(snapId)) return undefined;
-      const stored: StoredItem = { localId: item.localId, text: item.text, ...(item.box ? { box: item.box } : {}), ...(cropUri ? { cropUri } : {}) };
+      const stored: StoredItem = { localId: item.localId, text: item.text, ...(item.box ? { box: item.box } : {}), ...(item.pass !== undefined ? { pass: item.pass } : {}), ...(cropUri ? { cropUri } : {}) };
       const items = existing >= 0 ? snap.items.map((i, n) => (n === existing ? stored : i)) : [...snap.items, stored];
       this.snaps = this.snaps.map((s) => (s.snapId === snapId ? { ...s, items } : s));
       this.save();

@@ -2,6 +2,7 @@
 // image) and whether the server has it yet. A snap read offline stays here until it is sent; a killed app loses nothing.
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { IdentifyItem } from '@/api/generated/models';
+import type { TextOrientation } from '@/native/cm-vision';
 import { MemoryKeyValueStore, type KeyValueStore } from '@/features/scan/tray/trayStore';
 import type { ShotKind } from '../shotkind/shotKind';
 import type { SnapTrigger } from '../autosnap/types';
@@ -20,6 +21,8 @@ export interface PicItem {
   payload: IdentifyItem;
   /** The server's candidate, once `identify` has answered. */
   candidateId?: string;
+  /** The Vision pass that read the title line (0, 90, 180 or 270), kept on the phone only; absent on items stored before. */
+  pass?: TextOrientation;
   /** A small crop of this item, kept on the phone. */
   thumbUri?: string;
 }

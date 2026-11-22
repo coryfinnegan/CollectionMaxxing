@@ -26,6 +26,20 @@ describe('the snap store', () => {
     expect((files as MemorySnapFiles).files.size).toBe(2); // the still and one crop
   });
 
+  it('An item keeps the pass that read its title, and one stored without a pass has none', async () => {
+    const { store } = build({ t: 1 });
+    await store.saveStill('s1', PHOTO);
+    await store.saveItem('s1', { localId: 'a', text: 'Dune', pass: 90 });
+    await store.saveItem('s1', { localId: 'b', text: 'Emma', pass: 0 });
+    await store.saveItem('s1', { localId: 'c', text: 'Ulysses' });
+
+    expect(store.list()[0]!.items).toEqual([
+      { localId: 'a', text: 'Dune', pass: 90 },
+      { localId: 'b', text: 'Emma', pass: 0 },
+      { localId: 'c', text: 'Ulysses' },
+    ]);
+  });
+
   it('comes back after a restart', async () => {
     const now = { t: 1 };
     const first = build(now);
