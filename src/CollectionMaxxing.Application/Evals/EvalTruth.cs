@@ -14,7 +14,7 @@ public sealed record GoldenPhotoDto(string Id, string Set, bool HasTruth, long B
 public sealed record ShelfTruthItem(string Title, string MediaType, string? Platform, int? Year, IReadOnlyList<string>? AlsoTitled = null);
 
 /// <summary>The truth of a shelf picture (docs/09): the readable items in order, and how many are visible but unreadable.</summary>
-public sealed record ShelfTruth(IReadOnlyList<ShelfTruthItem> Items, int Unreadable);
+public sealed record ShelfTruth(IReadOnlyList<ShelfTruthItem> Items, int Unreadable, IReadOnlyList<ShelfTruthItem>? AlsoInFrame = null);
 
 /// <summary>The truth of a single-item picture (docs/09). <c>Kind</c> is one of <see cref="EvalKinds"/>. <c>AlsoTitled</c> lists full titles that name the same item as <c>Title</c>; null when the truth lists none.</summary>
 public sealed record SingleTruth(string Title, string? Platform, string Format, string Completeness, string? Edition, string Kind, IReadOnlyList<string>? AlsoTitled = null);
@@ -133,20 +133,27 @@ public static class TruthFiles
             return null;
         }
 
-        var items = new List<ShelfTruthItem>();
-        foreach (var element in itemsElement.EnumerateArray())
+        if (!TryShelfItems(itemsElement, out var items))
         {
-            if (element.ValueKind != JsonValueKind.Object || Text(element, "title") is not { } title)
+            return null;
+        }
+
+        // Optional: items really in the picture but outside the shelves the truth covers (see EvalScorer). Same shape and limits as "items".
+        List<ShelfTruthItem>? alsoInFrame = null;
+        foreach (var name in new[] { "alsoInFrame", "also_in_frame" })
+        {
+            if (!root.TryGetProperty(name, out var listed) || listed.ValueKind == JsonValueKind.Null)
+            {
+                continue;
+            }
+
+            if (listed.ValueKind != JsonValueKind.Array || listed.GetArrayLength() > MaxItems || !TryShelfItems(listed, out var parsed))
             {
                 return null;
             }
 
-            if (!TryAlsoTitled(element, out var alsoTitled))
-            {
-                return null;
-            }
-
-            items.Add(new ShelfTruthItem(title, Text(element, "mediaType", "media_type") ?? "other", Text(element, "platform"), Year(element), alsoTitled));
+            alsoInFrame = parsed.Count == 0 ? null : parsed;
+            break;
         }
 
         var unreadable = 0;
@@ -158,7 +165,28 @@ public static class TruthFiles
             }
         }
 
-        return new TruthEntry(photoId, GoldenSets.Shelf, new ShelfTruth(items, unreadable), null, ShotKindOf(root));
+        return new TruthEntry(photoId, GoldenSets.Shelf, new ShelfTruth(items, unreadable, alsoInFrame), null, ShotKindOf(root));
+    }
+
+    private static bool TryShelfItems(JsonElement array, out List<ShelfTruthItem> items)
+    {
+        items = [];
+        foreach (var element in array.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.Object || Text(element, "title") is not { } title)
+            {
+                return false;
+            }
+
+            if (!TryAlsoTitled(element, out var alsoTitled))
+            {
+                return false;
+            }
+
+            items.Add(new ShelfTruthItem(title, Text(element, "mediaType", "media_type") ?? "other", Text(element, "platform"), Year(element), alsoTitled));
+        }
+
+        return true;
     }
 
     private static TruthEntry? ParseSingle(string photoId, JsonElement root)

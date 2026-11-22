@@ -23,7 +23,7 @@ import { compareArtwork, type ArtDeps, type ItemPicture } from './artStep';
 import { coverCaptureOf, verifyCoverPhoto, type CoverVerifyDeps } from './coverVerify';
 import { identifyRequestOf, picItemOf } from './payload';
 import type { PipelineApi } from './pipelineApi';
-import { ShelfUpgrades, type ShelfUploadDeps } from './shelfUpgrade';
+import { sharedShelfUpgrades, type ShelfUpgrades, type ShelfUploadDeps } from './shelfUpgrade';
 import type { PicItem, PicSnap, PipelineStore } from './pipelineStore';
 import type { SnapStore } from './snapStore';
 
@@ -115,14 +115,9 @@ export class SnapPipeline {
   private noticed = false;
 
   private readonly upgrades: ShelfUpgrades;
-  private unsubscribeTray: (() => void) | undefined;
 
   constructor(private readonly deps: PipelineDeps) {
-    this.upgrades = new ShelfUpgrades(
-      deps,
-      () => this.now(),
-      (sessionId) => this.isCurrent(sessionId),
-    );
+    this.upgrades = sharedShelfUpgrades(deps, () => this.now());
   }
 
   /** A barcode that can be read right now wins over a picture. */
@@ -152,11 +147,8 @@ export class SnapPipeline {
   start() {
     // Not stop(): that would give up the shelf uploads a killed app left waiting, which this start picks up.
     this.unsubscribe?.();
-    this.unsubscribeTray?.();
     this.stopped = false;
     this.unsubscribe = useCardsStore.subscribe(() => this.scanForCloseCalls());
-    // Discard and Add end the scan this pipeline is sending shelf photos for: an upload in flight stops with it.
-    this.unsubscribeTray = this.deps.tray.subscribe(() => this.upgrades.recheck());
     this.scanForCloseCalls();
     // Every snap still here has unresolved work: pin it before trimming, so retention never takes it.
     for (const snap of this.deps.store.getState().snaps) {
@@ -171,9 +163,7 @@ export class SnapPipeline {
     this.stopped = true;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
-    this.unsubscribeTray?.();
-    this.unsubscribeTray = undefined;
-    this.upgrades.stop(); // leaving the scanner or switching library: an upload in flight is aborted, nothing waits
+    // The shelf uploads are not stopped here: they belong to the scan, not to this screen (a library switch or sign-out stops them).
   }
 
   /** Whether an answer for `sessionId` still belongs on screen: the scanner is still open and the scan was not discarded or replaced. */

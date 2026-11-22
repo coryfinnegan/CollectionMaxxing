@@ -268,6 +268,7 @@ public static class AuthorizationMatrix
 
         // ---- Recognition config (SCAN-2d): the phone fetches its prompt and thresholds; any signed-in member, not library-scoped ----
         SignedIn("GET", "/api/v1/recognition/config", allowed: Ok),
+        SignedIn("POST", "/api/v1/recognition/shelf-reader:warm", allowed: NoContent), // no reader is set up in the matrix host: 204
 
         // ---- Catalogue (CAT): any signed-in caller; feature prints are per library ----------------------------
         SignedIn("GET", "/api/v1/catalog/search", allowed: Ok, query: "q=jurassic"),

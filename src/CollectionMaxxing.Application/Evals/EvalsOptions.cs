@@ -47,6 +47,12 @@ public sealed class EvalsOptions
     /// switches off only that automatic step: an empty <c>reground.request</c> file in <see cref="ResultsPath"/> still asks for one on purpose.
     /// </summary>
     public bool RegroundOnStart { get; set; } = true;
+
+    /// <summary>
+    /// How many dated copies of a run's kept readings (<c>&lt;date&gt;-&lt;sha&gt;-inputs.json</c>, beside the dated result) stay in <see cref="ResultsPath"/>;
+    /// older ones are deleted when a new one is written. <c>latest-inputs.json</c> and the result summaries are never counted or deleted. A value below 1 keeps 1.
+    /// </summary>
+    public int KeepDatedInputs { get; set; } = 20;
 }
 
 /// <summary>The rule for a photo id. An id comes from a file name and is the only thing a request may use to name a file.</summary>

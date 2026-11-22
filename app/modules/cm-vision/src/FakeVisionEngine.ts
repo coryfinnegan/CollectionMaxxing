@@ -13,6 +13,7 @@ import type {
   RecognizeTextOptions,
   Rect,
   TextLine,
+  TextRequestDescription,
   VisionEngine,
 } from './types';
 
@@ -21,12 +22,15 @@ export const CAPABLE_MODEL: ModelCapabilities = { available: true, vision: true,
 export interface FakeVisionOptions {
   capabilities?: ModelCapabilities;
   deviceStatus?: DeviceStatus;
+  /** What this fake's OS is, before any option: its revisions, languages and build. Left out, the first `describeTextRequest` fixture. */
+  textRequest?: TextRequestDescription;
 }
 
 /** Replays fixture JSON; fails loudly for an input it has no fixture for. */
 export class FakeVisionEngine implements VisionEngine {
   private capabilities: ModelCapabilities;
   private status: DeviceStatus;
+  private textRequestBase: TextRequestDescription;
 
   constructor(
     private readonly set: FixtureSet = fixtures,
@@ -34,6 +38,26 @@ export class FakeVisionEngine implements VisionEngine {
   ) {
     this.capabilities = options.capabilities ?? CAPABLE_MODEL;
     this.status = options.deviceStatus ?? { thermalState: 'nominal', osVersion: '26.0' };
+    this.textRequestBase = options.textRequest ?? fixtures.describeTextRequest[0].output;
+  }
+
+  /** Per-test configuration: the OS's own text request (its default and supported revisions, languages and build). */
+  setTextRequest(description: TextRequestDescription): void {
+    this.textRequestBase = description;
+  }
+
+  /** The OS's own request with what the options name written over it; refuses a revision the OS does not support, as the native module does. */
+  async describeTextRequest(options?: RecognizeTextOptions): Promise<TextRequestDescription> {
+    const base = this.textRequestBase;
+    if (options?.revision !== undefined && !base.supportedRevisions.includes(options.revision)) {
+      throw new Error(`Text recognition has no revision ${options.revision}; it supports ${base.supportedRevisions.join(', ')}.`);
+    }
+    return {
+      ...base,
+      revision: options?.revision ?? base.revision,
+      recognitionLanguages: options?.languages ?? base.recognitionLanguages,
+      automaticallyDetectsLanguage: options?.automaticallyDetectsLanguage ?? base.automaticallyDetectsLanguage,
+    };
   }
 
   /** Per-test configuration, e.g. Apple Intelligence off or the model not ready. */
@@ -81,6 +105,8 @@ export class FakeVisionEngine implements VisionEngine {
    */
   async recognizeText(imageUri: string, options?: RecognizeTextOptions): Promise<TextLine[]> {
     const { orientations, level, languageCorrection, regions } = textRequest(options);
+    // A request names settings the recordings do not tell apart: they are replayed the same however they are asked, but an unsupported revision is refused first.
+    if (options?.revision !== undefined) await this.describeTextRequest(options);
     const shape = {
       ...(level === 'fast' ? { level } : {}),
       ...(languageCorrection ? { languageCorrection } : {}),

@@ -68,10 +68,13 @@ public class EvalRegroundTests(ApiFixture api) : RegroundTest(api)
         var firstRun = await FirstRunAsync("c1");
         var original = TryLatestSummary()!.Value;
         var kept = await KeptInputsAsync();
+        var datedInputsBefore = Directory.GetFiles(Golden.Results, "????-??-??-*-inputs.json").Select(Path.GetFileName).Order().ToList();
+        datedInputsBefore.Count.ShouldBe(1, "the phone's run kept one dated copy of its readings");
 
         await RedeployAsync();
         var rescored = await NextLatestAfterAsync(firstRun);
 
+        Directory.GetFiles(Golden.Results, "????-??-??-*-inputs.json").Select(Path.GetFileName).Order().ToList().ShouldBe(datedInputsBefore, "a re-ground writes no dated copy: the readings did not change");
         rescored.GetProperty("buildSha").GetString().ShouldBe(NewSha);
         rescored.GetProperty("runId").GetString().ShouldNotBe(firstRun, "it is a new run");
         IsRegrounded(original).ShouldBeFalse();

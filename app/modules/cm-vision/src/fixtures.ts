@@ -1,12 +1,13 @@
 import barcodeScenes from '../fixtures/barcodeScenes.json';
 import detectBarcodes from '../fixtures/detectBarcodes.json';
+import describeTextRequest from '../fixtures/describeTextRequest.json';
 import detectRectangles from '../fixtures/detectRectangles.json';
 import extractItems from '../fixtures/extractItems.json';
 import featurePrint from '../fixtures/featurePrint.json';
 import featurePrintDistance from '../fixtures/featurePrintDistance.json';
 import readItems from '../fixtures/readItems.json';
 import recognizeText from '../fixtures/recognizeText.json';
-import type { DetectedCode, FeaturePrint, FixtureRecord, ReadItemsResult, Rect, TextLine } from './types';
+import type { DetectedCode, FeaturePrint, FixtureRecord, ReadItemsResult, RecognizeTextOptions, Rect, TextLine, TextRequestDescription } from './types';
 
 export interface FixtureSet {
   /** What is absent is the scanner's own request: `orientation` 0, the accurate level, no language correction, the whole picture. A `region` is recorded in its own frame. */
@@ -14,6 +15,8 @@ export interface FixtureSet {
     { imageUri: string; orientation?: 90 | 180 | 270; level?: 'fast'; languageCorrection?: true; region?: Rect },
     TextLine[]
   >[];
+  /** The first record is what the fake says of the scanner's own request (no options). */
+  describeTextRequest: FixtureRecord<RecognizeTextOptions, TextRequestDescription>[];
   readItems: FixtureRecord<{ imageUri: string }, ReadItemsResult>[];
   /** Keyed by the exact OCR text the engine sends (lines joined with `\n`). */
   extractItems: FixtureRecord<{ ocrText: string }, ReadItemsResult>[];
@@ -28,6 +31,7 @@ export interface FixtureSet {
 /** The hand-written fixtures; a dev build will later record real ones in the same format. */
 export const fixtures = {
   recognizeText,
+  describeTextRequest,
   readItems,
   extractItems,
   detectRectangles,

@@ -58,6 +58,38 @@ export interface RecognizeTextOptions {
    * which region read it, and its box is on the whole picture. Regions are read upright: with them `orientations` must be `[0]`.
    */
   regions?: Rect[];
+  /**
+   * The languages the reader may read, as Apple names them (`en-US`). Left out, the request does not set them and the OS's own default stands.
+   * Only the eval's probes name it.
+   */
+  languages?: string[];
+  /** Whether the reader detects the language itself. Left out, the request does not set it and the OS's own default stands. Only the eval's probes name it. */
+  automaticallyDetectsLanguage?: boolean;
+  /**
+   * The reader's request revision. Left out, the request does not set it and the OS's own default stands. A revision the OS does not support is refused
+   * before any read (`supportedRevisions` of `describeTextRequest` lists the ones it does). Only the eval's probes name it.
+   */
+  revision?: number;
+}
+
+/**
+ * What a text request is, as the OS builds it from the same options (`describeTextRequest`): nothing is read. The eval's probes record it so a
+ * reading can be told apart from the same photo read by another OS.
+ */
+export interface TextRequestDescription {
+  /** The revision the request would run with. */
+  revision: number;
+  /** The newest revision of the SDK the app is linked with, which is what a request that names none gets. */
+  defaultRevision: number;
+  /** Every revision this OS can run, ascending. */
+  supportedRevisions: number[];
+  /** The languages the request would read. */
+  recognitionLanguages: string[];
+  automaticallyDetectsLanguage: boolean;
+  /** Every language this OS can read. Empty when the OS would not say. */
+  supportedRecognitionLanguages: string[];
+  /** The OS's own words for its version and build, e.g. "Version 27.3 (Build 23D5103)". */
+  osBuild: string;
 }
 
 /**
@@ -94,6 +126,11 @@ export interface VisionEngine {
    * Lines are not de-duplicated across orientations; the caller decides.
    */
   recognizeText(imageUri: string, options?: RecognizeTextOptions): Promise<TextLine[]>;
+  /**
+   * What a text request with these options is on this OS, built the way `recognizeText` builds it, without reading anything. Rejects for a revision the OS
+   * does not support. On the web it answers that nothing is known: every list empty.
+   */
+  describeTextRequest(options?: RecognizeTextOptions): Promise<TextRequestDescription>;
   detectRectangles(imageUri: string, options?: DetectRectanglesOptions): Promise<Rect[]>;
   /** Barcodes in a still picture (Photos import), through VNDetectBarcodesRequest. */
   detectBarcodes(imageUri: string): Promise<DetectedCode[]>;

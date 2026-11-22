@@ -16,6 +16,7 @@ public static class RecognitionServices
         services.AddOptions<RecognitionOptions>().BindConfiguration(RecognitionOptions.SectionName);
         services.AddRecognitionSettings();
         services.AddSingleton<GetRecognitionConfig.Handler>();
+        services.AddScoped<WarmShelfReader.Handler>();
         return services;
     }
 }
