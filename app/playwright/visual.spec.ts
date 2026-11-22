@@ -221,6 +221,58 @@ test.describe('visual', () => {
     });
   });
 
+  // Review one at a time on a phone (#833): the seeded rows' two cards that need you, each lit on a drawn shelf photo, then the end.
+  // The photo is synthetic (drawn spines, no one's shelf) and goes into the phone's snap store before the app starts.
+  test.describe('review walk seeded', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('review walk', async ({ page, open }) => {
+      await openWalk(page, open);
+      await showMatch(page, 'Suddenly You', 0);
+      await expectShot(page, 'review-walk');
+    });
+
+    test('review walk no cover', async ({ page, open }) => {
+      await openWalk(page, open);
+      // The engine preselected the 2003 edition, which has no art: the spine strip grows into the cover's place.
+      await expect(page.getByLabel(/^Match 2 of 2: Suddenly You/)).toBeVisible();
+      await expectShot(page, 'review-walk-nocover');
+    });
+
+    test('review walk end', async ({ page, open }) => {
+      await openWalk(page, open);
+      await page.getByRole('button', { name: 'Add this: Suddenly You' }).click();
+      await expect(page.getByText('2 of 2', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: /^Not this one: / })).toBeEnabled();
+      // After an answer the answers hold for a moment (a double tap is one answer); this is the next, deliberate tap.
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /^Not this one: / }).click();
+      await expect(page.getByText("That's everything that needed you.")).toBeVisible();
+      await expect(page.getByText('1 matched by itself.')).toBeVisible();
+      await expect(page.getByText('1 you picked.')).toBeVisible();
+      await expect(page.getByText('1 you own. Not added.')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Add 2 items' })).toBeVisible();
+      await page.waitForTimeout(400);
+      await expectShot(page, 'review-walk-end');
+    });
+
+    test('review walk wide shelf', async ({ page, open }) => {
+      await openWalk(page, open, shelfSnap(WIDE_SHELF, WIDE_SPINES));
+      await showMatch(page, 'Suddenly You', 0);
+      await expectShot(page, 'review-walk-wide-shelf');
+    });
+
+    test.describe('dark', () => {
+      test.use({ colorScheme: 'dark' });
+
+      test('review walk dark', async ({ page, open }) => {
+        await openWalk(page, open);
+        await showMatch(page, 'Suddenly You', 0);
+        await expectShot(page, 'review-walk-dark');
+      });
+    });
+  });
+
   // The shared work and edition rows (#457): an owned multi-edition work, an
   // unowned single, an unowned multi with no art, then the owned work's editions.
   test.describe('search rows seeded', () => {
@@ -415,4 +467,86 @@ async function openSeededReview(page: Page, open: (path: string) => Promise<void
   await expect(page.getByRole('button', { name: 'Keep Suddenly You as unverified' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Discard Suddenly You' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add 2 items' })).toBeVisible();
+}
+
+/**
+ * A drawn shelf (no photo of anyone's books): a dozen spines standing on a board, each with its title along it. The seeded picture
+ * rows sit on it: the pick (Suddenly You), the not-found read (Dune Mess), the owned Dune and the row still looking up.
+ */
+const SHELF = { width: 1600, height: 1000, board: 880 };
+const SPINES: { title: string; w: number; h: number; fill: string; ink: string; localId?: string }[] = [
+  { title: 'Quiet Harbor Almanac', w: 92, h: 760, fill: '#2f4858', ink: '#f4f1ea' },
+  { title: 'Lantern Hollow', w: 112, h: 700, fill: '#8a3b2e', ink: '#f6e7c8' },
+  { title: 'Suddenly You · Lisa Kleypas', w: 104, h: 800, fill: '#e7d3b0', ink: '#3a2a1a', localId: 'seed-pick' },
+  { title: 'Orchard Songs', w: 82, h: 650, fill: '#4a5d3a', ink: '#f4f1ea' },
+  { title: 'Dune', w: 124, h: 780, fill: '#c2702b', ink: '#1d1206', localId: 'seed-owned' },
+  { title: 'Cedar Row', w: 86, h: 720, fill: '#5b3f6b', ink: '#f0e6f5' },
+  { title: 'Dune Mess', w: 106, h: 760, fill: '#1f3d2b', ink: '#e9e2c9', localId: 'seed-lost' },
+  { title: 'Marlow Wickersham', w: 96, h: 690, fill: '#7a2f45', ink: '#f4f1ea' },
+  { title: 'Spine Row', w: 92, h: 740, fill: '#2b2b38', ink: '#dddddd', localId: 'seed-waiting' },
+  { title: 'The Long Field', w: 116, h: 800, fill: '#9a8a5a', ink: '#1a1a12' },
+  { title: 'Winter Orchard', w: 82, h: 700, fill: '#36536b', ink: '#f4f1ea' },
+  { title: 'Small Hours', w: 102, h: 760, fill: '#b44b3a', ink: '#fff3e0' },
+];
+
+type Spine = { title: string; w: number; h: number; fill: string; ink: string; localId?: string };
+
+/**
+ * A wide landscape shelf of thirty narrow spines (a typical full shelf photo), the pick lit near the middle: the band must still
+ * zoom in on it, with its neighbors readable and dimmed.
+ */
+const WIDE_SHELF = { width: 2576, height: 1449, board: 1360, start: 22 };
+const WORDS = ['Harbor', 'Lantern', 'Orchard', 'Cedar', 'Marlow', 'Winter', 'Field', 'Hours', 'Quiet', 'Copper', 'Willow', 'Ember', 'Meadow', 'Signal', 'Tidewater'];
+const PALETTE: [string, string][] = [
+  ['#2f4858', '#f4f1ea'], ['#8a3b2e', '#f6e7c8'], ['#4a5d3a', '#f4f1ea'], ['#c2702b', '#1d1206'], ['#5b3f6b', '#f0e6f5'],
+  ['#1f3d2b', '#e9e2c9'], ['#7a2f45', '#f4f1ea'], ['#2b2b38', '#dddddd'], ['#9a8a5a', '#1a1a12'], ['#36536b', '#f4f1ea'], ['#b44b3a', '#fff3e0'],
+];
+const WIDE_SPINES: Spine[] = Array.from({ length: 30 }, (_, i) => {
+  const [fill, ink] = PALETTE[(i * 7) % PALETTE.length]!;
+  const ids: Record<number, string> = { 8: 'seed-owned', 15: 'seed-pick', 20: 'seed-lost', 25: 'seed-waiting' };
+  if (i === 15) return { title: 'Suddenly You · Lisa Kleypas', w: 84, h: 1240, fill: '#e7d3b0', ink: '#3a2a1a', localId: ids[i] };
+  return { title: `${WORDS[i % WORDS.length]} ${WORDS[(i * 4 + 3) % WORDS.length]}`, w: 70 + ((i * 13) % 16), h: 1060 + ((i * 37) % 200), fill, ink, ...(ids[i] ? { localId: ids[i] } : {}) };
+});
+
+function shelfSnap(shelf: { width: number; height: number; board: number; start?: number } = SHELF, spines: Spine[] = SPINES) {
+  const SHELF = shelf;
+  const SPINES = spines;
+  let x = shelf.start ?? 70;
+  const parts: string[] = [];
+  const items: { localId: string; text: string; box: { x: number; y: number; width: number; height: number } }[] = [];
+  for (const s of SPINES) {
+    const top = SHELF.board - s.h;
+    const cx = x + s.w / 2;
+    const cy = top + s.h / 2;
+    parts.push(
+      `<rect x="${x}" y="${top}" width="${s.w}" height="${s.h}" rx="6" fill="${s.fill}"/>`,
+      `<rect x="${x}" y="${top + 40}" width="${s.w}" height="10" fill="${s.ink}" opacity="0.35"/>`,
+      `<rect x="${x}" y="${SHELF.board - 50}" width="${s.w}" height="10" fill="${s.ink}" opacity="0.35"/>`,
+      `<text x="${cx}" y="${cy}" transform="rotate(90 ${cx} ${cy})" text-anchor="middle" dominant-baseline="central" font-family="Georgia, 'DejaVu Serif', serif" font-weight="700" font-size="${Math.round(s.w * 0.42)}" fill="${s.ink}">${s.title}</text>`,
+    );
+    if (s.localId) items.push({ localId: s.localId, text: s.title, box: { x: x / SHELF.width, y: top / SHELF.height, width: s.w / SHELF.width, height: s.h / SHELF.height } });
+    x += s.w + 8;
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${SHELF.width}" height="${SHELF.height}" viewBox="0 0 ${SHELF.width} ${SHELF.height}"><rect width="${SHELF.width}" height="${SHELF.height}" fill="#3b2a1f"/><rect y="${SHELF.board}" width="${SHELF.width}" height="${SHELF.height - SHELF.board}" fill="#6b4a2f"/>${parts.join('')}</svg>`;
+  return { snapId: 'seed-snap-1', stillUri: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`, width: SHELF.width, height: SHELF.height, items };
+}
+
+/** Opens the seeded Review on a phone, with the drawn shelf in the phone's snap store as a shelf snap would have left it. */
+async function openWalk(page: Page, open: (path: string) => Promise<void>, snap = shelfSnap()) {
+  await page.addInitScript((stored) => {
+    // react-native-mmkv on the web keeps each instance's keys in localStorage as `<id>\<key>`.
+    localStorage.setItem('snap-store\\snap-store-v1', JSON.stringify([{ ...stored, createdAt: Date.now() }]));
+  }, snap);
+  await open('/review?seed=review-rows');
+  await expect(page.getByText('1 of 2', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('walk-band')).toBeVisible();
+  // The band glides and the card comes in; the shot is of the settled card.
+  await page.waitForTimeout(600);
+}
+
+/** Pages the match reel to one match, as a swipe would. */
+async function showMatch(page: Page, title: string, index: number) {
+  await page.getByTestId('match-pages').evaluate((el, i) => el.scrollTo({ left: i * el.clientWidth, behavior: 'instant' as ScrollBehavior }), index);
+  await expect(page.getByLabel(new RegExp(`^Match ${index + 1} of \\d+: ${title}`))).toBeVisible();
+  await page.waitForTimeout(300);
 }

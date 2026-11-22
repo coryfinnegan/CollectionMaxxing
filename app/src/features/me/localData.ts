@@ -5,6 +5,7 @@ import { endSession } from '@/lib/auth/session';
 import { useCardsStore } from '@/features/scan/cards/cardsStore';
 import { clearSessionContextData } from '@/features/scan/session/sessionContext';
 import { clearTrayData } from '@/features/scan/tray/storage';
+import { clearWalkData } from '@/features/review/walkStore';
 
 type Clearer = () => void | Promise<void>;
 const clearers = new Set<Clearer>();
@@ -20,6 +21,7 @@ export async function clearLocalData(queryClient: QueryClient): Promise<void> {
   clearTrayData(); // every library's tray, not just the one open
   clearSessionContextData(); // every library's remembered spot, not just the one open
   useCardsStore.getState().reset(); // the result cards belong to the signed-in account
+  clearWalkData(); // Review's saved walks: what was answered on which card
   for (const clearer of clearers) await clearer();
   queryClient.clear();
 }
