@@ -34,16 +34,6 @@ const snapOf = (...items: ReadItem[]): PicSnap => ({
   engine: 'vision_pipeline',
 });
 
-describe('the pass that read the title', () => {
-  it('stays on the item the phone keeps and is never sent', () => {
-    const item = read('Dune', { pass: 90 });
-    expect(picItemOf(item).pass).toBe(90);
-    expect(picItemOf(read('Emma', { pass: 0 })).pass).toBe(0);
-    expect('pass' in picItemOf(read('Ulysses'))).toBe(false);
-    expect(JSON.stringify(identifyRequestOf(snapOf(item)))).not.toContain('"pass"');
-  });
-});
-
 describe('where a read sits', () => {
   it('goes with the read, so five spines titled HIGHLANDER stay five items', () => {
     const spine = (x: number) => read('HIGHLANDER', { localId: `spine-${x}`, box: { x, y: 0.1, width: 0.05, height: 0.7 } });

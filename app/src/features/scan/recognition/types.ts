@@ -1,6 +1,6 @@
 // The shapes the recognition engines share. Nothing here carries picture data: only text and fields.
 import type { ItemCompleteness, ReleaseFormat, WorkKind } from '@/api/generated/models';
-import type { ModelConfidence, Rect, TextLine, TextOrientation } from '@/native/cm-vision';
+import type { ModelConfidence, Rect, TextLine } from '@/native/cm-vision';
 import type { ShotKind } from '../shotkind/shotKind';
 import type { CueKind } from './coverKind';
 
@@ -29,8 +29,6 @@ export interface ReadItem {
   lines?: string[];
   /** Normalized 0..1 on the still, origin top-left. Absent when no Vision text matched. */
   box?: Rect;
-  /** The Vision pass (degrees the picture was turned clockwise) that read the title line; Review turns the spine strip by it. Phone only: never sent. */
-  pass?: TextOrientation;
   order: number;
   confidence: ModelConfidence;
   /**

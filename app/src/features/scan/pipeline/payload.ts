@@ -25,7 +25,7 @@ export function identifyItemOf(item: ReadItem): IdentifyItem {
 }
 
 export function picItemOf(item: ReadItem): PicItem {
-  return { localId: item.localId, text: item.text, title: item.title, payload: identifyItemOf(item), ...(item.pass !== undefined ? { pass: item.pass } : {}) };
+  return { localId: item.localId, text: item.text, title: item.title, payload: identifyItemOf(item) };
 }
 
 export function identifyRequestOf(snap: PicSnap): IdentifyRequest {

@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';
-import type { Rect, TextOrientation } from '@/native/cm-vision';
+import type { Rect } from '@/native/cm-vision';
 import type { Placed, Size } from '@/features/scan/detail/overlay';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { Cover, Text } from '@/ui';
@@ -113,25 +113,12 @@ export function ShelfBand({
 }
 
 /** The item on its own: clipped out of the still, turned upright when it is a spine, as large as `max` allows. */
-export function SpineStrip({
-  still,
-  box,
-  max,
-  pass,
-  label = 'Your photo of this spine',
-}: {
-  still: { uri: string; width: number; height: number };
-  box: Rect;
-  max: Size;
-  /** The Vision pass that read the title: the strip turns by it so the title reads left to right. */
-  pass?: TextOrientation;
-  label?: string;
-}) {
-  const view = stripView({ width: still.width, height: still.height }, box, max, pass);
+export function SpineStrip({ still, box, max, label = 'Your photo of this spine' }: { still: { uri: string; width: number; height: number }; box: Rect; max: Size; label?: string }) {
+  const view = stripView({ width: still.width, height: still.height }, box, max);
   if (!view) return null;
   return (
     <View testID="spine-strip" accessible accessibilityRole="image" accessibilityLabel={label} style={styles.strip(view.outer)}>
-      <View testID={view.turned ? 'spine-strip-turned' : 'spine-strip-flat'} style={styles.clip(view.clip, view.turn)}>
+      <View testID={view.turned ? 'spine-strip-turned' : 'spine-strip-flat'} style={styles.clip(view.clip, view.turned)}>
         <Image source={{ uri: still.uri }} resizeMode="stretch" style={styles.placed(view.image)} accessible={false} accessibilityIgnoresInvertColors />
       </View>
     </View>
@@ -173,14 +160,14 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.radius.sm,
     backgroundColor: theme.colors.line,
   }),
-  clip: (clip: Placed, turn: number) => ({
+  clip: (clip: Placed, turned: boolean) => ({
     position: 'absolute' as const,
     left: clip.left,
     top: clip.top,
     width: clip.width,
     height: clip.height,
     overflow: 'hidden' as const,
-    transform: turn === 0 ? [] : [{ rotate: `${turn === 270 ? -90 : turn}deg` }],
+    transform: turned ? [{ rotate: '-90deg' }] : [],
   }),
   placed: (p: Placed) => ({ position: 'absolute' as const, left: p.left, top: p.top, width: p.width, height: p.height }),
   cropRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },

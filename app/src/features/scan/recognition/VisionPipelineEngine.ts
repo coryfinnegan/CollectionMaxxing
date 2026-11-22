@@ -150,7 +150,6 @@ export class VisionPipelineEngine implements RecognitionEngine {
         ...(productCode ? { productCode } : {}),
         kind: cover?.kind ?? 'other',
         box: p.box,
-        ...(titleLine.pass !== undefined ? { pass: titleLine.pass } : {}),
         order,
         confidence: 'low',
       };

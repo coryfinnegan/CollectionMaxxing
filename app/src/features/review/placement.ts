@@ -1,7 +1,7 @@
 // Where a Review row was found (#833), as pure functions: which photo, which box on it, and how that was known. Then the two views
 // the walk draws from the photo: the band (a window onto the still with the item lit) and the strip (the item itself, upright).
 import type { BoxDto, CandidateDto } from '@/api/generated/models';
-import type { Rect, TextOrientation } from '@/native/cm-vision';
+import type { Rect } from '@/native/cm-vision';
 import type { Placed, Size } from '@/features/scan/detail/overlay';
 import { fitImage } from '@/features/scan/detail/overlay';
 import type { PicSnap } from '@/features/scan/pipeline/pipelineStore';
@@ -20,8 +20,6 @@ export interface Place {
   how: PlaceHow;
   /** The phone's stored crop of this item. */
   cropUri?: string;
-  /** The Vision pass that read the item's title: the spine strip turns by it. Absent for a server box and for items stored before. */
-  pass?: TextOrientation;
 }
 
 export interface PlaceContext {
@@ -44,7 +42,7 @@ export function placeOf(c: CandidateDto, ctx: PlaceContext): Place | null {
     const item = receipt.items.find((i) => i.candidateId === c.id || (!!c.localId && i.localId === c.localId))!;
     const snap = find(receipt.snapId);
     const stored = snap?.items.find((i) => i.localId === item.localId);
-    return placed(receipt.snapId, receipt.createdAt, snap, stored?.box, asRect(c.box), stored?.cropUri, stored?.pass ?? item.pass);
+    return placed(receipt.snapId, receipt.createdAt, snap, stored?.box, asRect(c.box), stored?.cropUri);
   }
   // A server row: its segment names the photo it was read from.
   const segment = c.segmentId ? ctx.snaps.find((s) => s.segmentId === c.segmentId) : undefined;
@@ -53,12 +51,12 @@ export function placeOf(c: CandidateDto, ctx: PlaceContext): Place | null {
   const kept = c.localId ? [...ctx.stored].reverse().find((s) => s.items.some((i) => i.localId === c.localId)) : undefined;
   if (kept) {
     const stored = kept.items.find((i) => i.localId === c.localId);
-    return placed(kept.snapId, kept.createdAt, kept, stored?.box, asRect(c.box), stored?.cropUri, stored?.pass);
+    return placed(kept.snapId, kept.createdAt, kept, stored?.box, asRect(c.box), stored?.cropUri);
   }
   return null;
 }
 
-function placed(snapId: string, takenAt: number, snap: StoredSnap | undefined, phoneBox: Rect | undefined, serverBox: Rect | undefined, cropUri?: string, pass?: TextOrientation): Place {
+function placed(snapId: string, takenAt: number, snap: StoredSnap | undefined, phoneBox: Rect | undefined, serverBox: Rect | undefined, cropUri?: string): Place {
   const box = phoneBox ?? serverBox;
   return {
     snapId,
@@ -67,8 +65,6 @@ function placed(snapId: string, takenAt: number, snap: StoredSnap | undefined, p
     ...(box ? { box } : {}),
     how: phoneBox ? 'phone' : serverBox ? 'server' : 'unmarked',
     ...(cropUri ? { cropUri } : {}),
-    // The pass says how the phone's text reads inside the phone's own box: with the server's box it means nothing.
-    ...(phoneBox && pass !== undefined ? { pass } : {}),
   };
 }
 
@@ -146,27 +142,16 @@ export interface StripView {
   clip: Placed;
   /** The still inside the clip, so only the box shows. */
   image: Placed;
-  /** True when the clip's width and height swap (a quarter turn either way), so a spine stands on its side. */
+  /** True when the clip is turned a quarter left so a spine's title reads. */
   turned: boolean;
-  /** Degrees clockwise the clip is turned so the title reads left to right: 0 for a flat item. */
-  turn: 0 | 90 | 180 | 270;
 }
 
-/**
- * The item clipped out of the still and turned so its title reads left to right when it is a spine, as large as fits `max`.
- * `pass` is the Vision pass that read the title: the picture was turned clockwise by that many degrees for Vision to read it
- * (see CmVisionImage.swift: `.right` for 90, `.down` for 180, `.left` for 270; and `CmContract.unrotated`, which maps a box read in
- * the turned picture back), so turning the strip clockwise by the same degrees reads it too. 270 is a spine printed top to bottom
- * (the usual one): the turn of a quarter left it always had, which an item with no pass keeps. 90 is bottom to top. A flat stack is
- * never turned.
- */
-export function stripView(still: Size, box: Rect, max: Size, pass?: TextOrientation): StripView | null {
+/** The item clipped out of the still and turned upright when it is a spine, as large as fits `max`. */
+export function stripView(still: Size, box: Rect, max: Size): StripView | null {
   const bw = box.width * still.width;
   const bh = box.height * still.height;
   if (bw <= 0 || bh <= 0 || max.width <= 0 || max.height <= 0) return null;
-  const tall = isTall(box, still);
-  const turn: StripView['turn'] = !tall ? 0 : (pass ?? 270);
-  const turned = turn === 90 || turn === 270;
+  const turned = isTall(box, still);
   const scale = turned ? Math.min(max.width / bh, max.height / bw) : Math.min(max.width / bw, max.height / bh);
   const clipW = bw * scale;
   const clipH = bh * scale;
@@ -176,6 +161,5 @@ export function stripView(still: Size, box: Rect, max: Size, pass?: TextOrientat
     clip: { left: round((outer.width - clipW) / 2), top: round((outer.height - clipH) / 2), width: round(clipW), height: round(clipH) },
     image: { left: round(-box.x * still.width * scale), top: round(-box.y * still.height * scale), width: round(still.width * scale), height: round(still.height * scale) },
     turned,
-    turn,
   };
 }

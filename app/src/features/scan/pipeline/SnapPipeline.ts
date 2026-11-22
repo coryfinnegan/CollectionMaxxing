@@ -279,7 +279,7 @@ export class SnapPipeline {
     const task = (async () => {
       const made = item.box ? await this.deps.crops.thumb(still, item.box).catch(() => undefined) : undefined;
       const cropUri = made ? trackPicture(made, snapId) : undefined;
-      const saved = await this.deps.snaps.saveItem(snapId, { localId: item.localId, text: item.text, box: item.box, ...(item.pass !== undefined ? { pass: item.pass } : {}) }, cropUri);
+      const saved = await this.deps.snaps.saveItem(snapId, { localId: item.localId, text: item.text, box: item.box }, cropUri);
       // The store keeps its own copy of the crop, so the one that was made is deleted; with no copy it is the only one and stays
       // for the receipt, unless the snap is gone already.
       if (cropUri && (saved?.cropUri || !this.deps.snaps.get(snapId))) await discardPicture(cropUri);

@@ -35,14 +35,6 @@ describe('placeOf', () => {
     expect(place).toEqual({ snapId: 'snap-1', takenAt: 10, still: { uri: 'file:///still.jpg', ...STILL }, box: SPINE, how: 'phone', cropUri: 'file:///crop.jpg' });
   });
 
-  it('carries the pass that read the phone box, and none for an item stored before', () => {
-    const withPass = stored({ items: [{ localId: 'local-1', text: 'Dune', box: SPINE, pass: 90 }] });
-    expect(placeOf(candidate({ id: 'row-1' }), { snaps: [receipt()], stored: [withPass] })?.pass).toBe(90);
-    expect(placeOf(candidate({ id: 'row-1' }), { snaps: [receipt()], stored: [stored()] })).not.toHaveProperty('pass');
-    const server = candidate({ id: 'server-row', segmentId: 'seg-1', box: { x: 0.6, y: 0.2, w: 0.04, h: 0.7 } });
-    expect(placeOf(server, { snaps: [receipt()], stored: [withPass] })).not.toHaveProperty('pass');
-  });
-
   it("finds a server row through its segment and lights the server's box", () => {
     const row = candidate({ id: 'server-row', segmentId: 'seg-1', box: { x: 0.6, y: 0.2, w: 0.04, h: 0.7 } });
     const place = placeOf(row, { snaps: [receipt()], stored: [stored()] });
@@ -191,44 +183,5 @@ describe('the strip', () => {
     expect(view.turned).toBe(false);
     expect(view.outer.width).toBeLessThanOrEqual(max.width);
     expect(view.outer.height).toBeLessThanOrEqual(max.height);
-  });
-
-  // Vision turns the picture clockwise by the pass; the strip is turned clockwise by the same degrees, so the title reads left to right.
-  it('A spine read top-to-bottom (pass 270) is drawn the right way up', () => {
-    expect(stripView(STILL, SPINE, max, 270)!.turn).toBe(270);
-  });
-
-  it('A spine read bottom-to-top (pass 90) is drawn the right way up', () => {
-    const view = stripView(STILL, SPINE, max, 90)!;
-    expect(view.turn).toBe(90);
-    expect(view.turned).toBe(true);
-    expect(view.outer).toEqual(stripView(STILL, SPINE, max, 270)!.outer);
-  });
-
-  it('A spine read upside down (pass 180) is turned half a turn and keeps its own shape', () => {
-    const view = stripView(STILL, SPINE, max, 180)!;
-    expect(view.turn).toBe(180);
-    expect(view.turned).toBe(false);
-  });
-
-  it('A spine whose title already reads left to right (pass 0) is not turned', () => {
-    const view = stripView(STILL, SPINE, max, 0)!;
-    expect(view.turn).toBe(0);
-    expect(view.turned).toBe(false);
-  });
-
-  it('An item stored before this change is drawn as today', () => {
-    const view = stripView(STILL, SPINE, max)!;
-    expect(view.turn).toBe(270);
-    expect(view.turned).toBe(true);
-  });
-
-  it('A flat stack is still not turned, whatever pass read it', () => {
-    const flat = { x: 0.2, y: 0.5, width: 0.4, height: 0.08 };
-    for (const pass of [undefined, 0, 90, 180, 270] as const) {
-      const view = stripView(STILL, flat, max, pass)!;
-      expect(view.turn).toBe(0);
-      expect(view.turned).toBe(false);
-    }
   });
 });
