@@ -1,6 +1,7 @@
 // Review's brain: the session's candidates, the owner's draft choices, the commit (once) and the Undo toast.
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 import type { CandidateDto, DecideCandidateRequest, ReleaseDto } from '@/api/generated/models';
 import { newIdempotencyKey } from '@/features/item/etag';
@@ -17,6 +18,8 @@ import { ApiError } from '@/lib/http';
 import { friendlyError } from '@/lib/problem';
 import { commitDraft, discardCandidates, loadIntoCards, patchCandidate, searchCandidate, skipCandidate, undoCommit } from './api';
 import { canCommit, groupCandidates, groupOf, reviewable } from './grouping';
+import { emptyWalk, undoWalk, type Answer, type WalkState } from './walk';
+import { getWalkStore } from './walkStore';
 import { flushProvisionalOutbox, keepAsUnverified } from './provisionals';
 import { contextWorkIdsFor } from './searchContext';
 import { skippedCandidates, skippedRows } from './skipped';
@@ -135,18 +138,96 @@ export function useReview({
     setDraft((d) => (d.picks[c.id] === release.id ? d : { ...d, picks: { ...d.picks, [c.id]: release.id } }));
   }, []);
 
-  /** Runs one row's server call with a busy flag and its own friendly error. */
-  const onRow = useCallback(async (id: string, action: () => Promise<unknown>) => {
+  /** Runs one row's server call with a busy flag and its own friendly error. True when it went through. */
+  const onRow = useCallback(async (id: string, action: () => Promise<unknown>): Promise<boolean> => {
     setRowBusy((b) => ({ ...b, [id]: true }));
     setRowErrors(({ [id]: _cleared, ...rest }) => rest);
     try {
       await action();
+      return true;
     } catch (error) {
       setRowErrors((e) => ({ ...e, [id]: friendlyError(error) }));
+      return false;
     } finally {
       setRowBusy((b) => ({ ...b, [id]: false }));
     }
   }, []);
+
+  // The walk (#833): one card at a time, saved per session so it survives a kill and a trip to the camera.
+  const walkStore = getWalkStore();
+  const savedWalk = useStore(walkStore, (s) => (sessionId ? s.walks[sessionId] : undefined));
+  const walk = useMemo(() => savedWalk ?? emptyWalk(), [savedWalk]);
+  const updateWalk = useCallback(
+    (change: (w: WalkState) => WalkState) => {
+      if (sessionId) walkStore.getState().update(sessionId, change);
+    },
+    [sessionId, walkStore],
+  );
+  // An answer given offline is in the saved walk, not on the server yet: it goes back into the draft, so Add still counts it.
+  useEffect(() => {
+    if (!sessionId) return;
+    const accepted = (walkStore.getState().walks[sessionId]?.stack ?? []).filter((a) => a.kind === 'accepted');
+    if (accepted.length === 0) return;
+    setDraft((d) => ({
+      ...d,
+      checked: { ...d.checked, ...Object.fromEntries(accepted.map((a) => [a.id, true])) },
+      picks: { ...d.picks, ...Object.fromEntries(accepted.filter((a) => a.releaseId).map((a) => [a.id, a.releaseId!])) },
+    }));
+  }, [sessionId, walkStore]);
+
+  /**
+   * Add this: the row is in the draft at once and the server hears now (the same PATCH the commit sends, moved earlier), so a
+   * late server read cannot skip a row the person already accepted. Offline, or refused, it stays in the draft and goes at Add.
+   */
+  const accept = useCallback(
+    async (c: CandidateDto, release?: ReleaseDto | null) => {
+      if (!sessionId || !canAdd) return;
+      pristine.current = false;
+      const pick = !!release && groupOf(c) === 'pick';
+      setDraft((d) => ({ ...d, checked: { ...d.checked, [c.id]: true }, picks: pick ? { ...d.picks, [c.id]: release.id } : d.picks }));
+      try {
+        await patchCandidate(sessionId, c.id, pick ? { releaseId: release.id } : { decision: 'accepted' });
+      } catch {
+        // Offline or refused: the draft holds the answer, and the commit sends it.
+      }
+    },
+    [sessionId, canAdd],
+  );
+
+  /** Takes one answer back: the tick goes back to what it was, and the server hears the row is undecided again. */
+  const reverse = useCallback(
+    async (answer: Answer, c: CandidateDto | undefined): Promise<boolean> => {
+      if (!sessionId || !canAdd) return false;
+      pristine.current = false;
+      setDraft((d) => {
+        const { [answer.id]: _was, ...checked } = d.checked;
+        const { [answer.id]: _pick, ...picks } = d.picks;
+        return { ...d, checked: answer.prevChecked === undefined ? checked : { ...checked, [answer.id]: answer.prevChecked }, picks };
+      });
+      if (answer.kind === 'left') return true;
+      if (answer.kind === 'skipped') {
+        if (!c) return false;
+        return onRow(c.id, async () => {
+          await patchCandidate(sessionId, c.id, { decision: 'undecided' });
+          setSkipped((rows) => rows.filter((r) => r.id !== c.id));
+        });
+      }
+      // Accepted: the draft no longer adds it; the server is told when it can be (offline the draft alone keeps it out).
+      await patchCandidate(sessionId, answer.id, { decision: 'undecided' }).catch(() => undefined);
+      return true;
+    },
+    [sessionId, canAdd, onRow],
+  );
+
+  /** Undo on the walk: steps back one card and reverses its answer. A skip needs the server to come back; offline it stays. */
+  const undoLast = useCallback(
+    async (find: (id: string) => CandidateDto | undefined) => {
+      const { state, answer } = undoWalk(walk);
+      if (!answer) return;
+      if (await reverse(answer, find(answer.id))) updateWalk(() => state);
+    },
+    [walk, reverse, updateWalk],
+  );
 
   const requireSession = (): string => {
     if (!sessionId || !canAdd) throw new Error('read-only');
@@ -289,6 +370,7 @@ export function useReview({
   return {
     role,
     canAdd,
+    sessionId,
     loading,
     loadError,
     list,
@@ -308,6 +390,8 @@ export function useReview({
     keep,
     discardAll,
     isChecked: (c: CandidateDto) => isChecked(draft, c),
+    /** Sets one row's tick (the walk's Leave it). */
+    tick: (c: CandidateDto, checked: boolean) => setChecked(c.id, checked),
     canCheck: (c: CandidateDto) => canAdd && canCommit(c, groupOf(c)),
     toggle: (c: CandidateDto) => setChecked(c.id, !isChecked(draft, c)),
     pickOf: (c: CandidateDto) => selectedPick(draft, c),
@@ -316,6 +400,11 @@ export function useReview({
     setStatus: (status: ReviewStatus) => update({ status }),
     override,
     skipped: skippedList,
+    accept,
+    reverse,
+    walk,
+    updateWalk,
+    undoLast,
     skip: (c: CandidateDto) =>
       onRow(c.id, async () => {
         await skipCandidate(requireSession(), c.id);
