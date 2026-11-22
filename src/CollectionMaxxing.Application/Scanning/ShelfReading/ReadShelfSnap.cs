@@ -324,7 +324,7 @@ public static class ReadShelfSnap
         /// The place of each server row that is added (<see cref="PcShelfUpgrade.PlacesOf"/>). A box may only be lent by a phone read that
         /// will not keep showing after this read: a row this read leaves out (<paramref name="leftOut"/>) or one identify had already
         /// skipped (a fragment, a repeat). Never by a row that stands (kept, standing in for a server release, or acted on by the person),
-        /// and never by a skipped row whose box is in the same place as a standing row's (<see cref="ReadBox.SamePlaceAs"/>: they share at
+        /// and never by a skipped row whose box is in the same place as a standing row's (<c>ReadBox.SamePlaceAs</c>: they share at
         /// least the share of the smaller box the rest of the code base counts as one place), so two cards never light one spine. When
         /// the phone's rows all stand (<paramref name="lend"/> false) no box is lent. A row with a donor carries the donor's segment id;
         /// one without carries the snap's first phone segment id, boxed or not.
@@ -348,7 +348,11 @@ public static class ReadShelfSnap
                     && BoxOf(row) is { } box && !standing.Any(other => other.SamePlaceAs(box)))];
             }
 
-            var donorReads = donors.Select(row => ShelfReadOf(row, StoredRead.From(row).Facts, kinds)).ToList();
+            // Every other phone read at a donor's place, whatever became of it: a longer read there that names another book blocks the donor.
+            var donorReads = donors.Select(row => new PcShelfUpgrade.PlaceDonor(
+                ShelfReadOf(row, StoredRead.From(row).Facts, kinds),
+                [.. phone.Where(other => !ReferenceEquals(other, row) && BoxOf(other) is { } box && BoxOf(row) is { } mine && mine.SamePlaceAs(box))
+                    .Select(other => ShelfReadOf(other, StoredRead.From(other).Facts, kinds))])).ToList();
             var chosen = PcShelfUpgrade.PlacesOf([.. added.Select(row => serverReads[server.IndexOf(row)])], donorReads);
             var places = new Dictionary<ScanCandidate, Place>(ReferenceEqualityComparer.Instance);
             for (var i = 0; i < added.Count; i++)

@@ -16,6 +16,9 @@ public class PcShelfUpgradeTests
 
     private static ShelfRead[] Server(params ShelfRead[] reads) => reads;
 
+    /// <summary>The places for donors that have nothing else at their place.</summary>
+    private static IReadOnlyList<int?> Places(ShelfRead[] server, ShelfRead[] donors) => PlacesOf(server, [.. donors.Select(read => new PlaceDonor(read, []))]);
+
     [Fact]
     public void Every_server_read_stands_whatever_it_found()
     {
@@ -158,13 +161,13 @@ public class PcShelfUpgradeTests
     [Fact]
     public void A_server_read_is_placed_at_the_phone_read_of_the_same_title()
     {
-        PlacesOf([Found("Quill Harbor Tides")], [Found("Copper Meadow Song"), Found("Quill Harbor Tides")]).ShouldBe([1]);
+        Places([Found("Quill Harbor Tides")], [Found("Copper Meadow Song"), Found("Quill Harbor Tides")]).ShouldBe([1]);
     }
 
     [Fact]
     public void A_server_read_is_placed_at_a_fragment_that_shares_two_of_its_words()
     {
-        PlacesOf([Found("Quill Harbor Tides")], [Read("Quill Harbor")]).ShouldBe([0]);
+        Places([Found("Quill Harbor Tides")], [Read("Quill Harbor")]).ShouldBe([0]);
     }
 
     [Fact]
@@ -172,15 +175,15 @@ public class PcShelfUpgradeTests
     {
         var server = Found("Quill Harbor Tides Almanac");
 
-        PlacesOf([server], [Read("Quill Harbor Tides"), Read("Quill Harbor Tides Almanac")]).ShouldBe([1], "all of its words are the server's");
-        PlacesOf([server], [Read("Harbor Tides Almanac"), Read("Quill Harbor Tides")]).ShouldBe([0], "equal shares: the earlier donor");
+        Places([server], [Read("Quill Harbor Tides"), Read("Quill Harbor Tides Almanac")]).ShouldBe([1], "all of its words are the server's");
+        Places([server], [Read("Harbor Tides Almanac"), Read("Quill Harbor Tides")]).ShouldBe([0], "equal shares: the earlier donor");
     }
 
     [Fact]
     public void A_donor_is_used_once_and_goes_to_the_server_read_it_shares_most_with_even_when_that_read_comes_later()
     {
         // Share with "Philosopher's Stone" is lower than with "Chamber Of Secrets": the best pair goes first, not the first server read.
-        var places = PlacesOf([Found("Harry Potter Philosopher Stone Saga"), Found("Harry Potter Chamber")], [Read("Harry Potter Chamber")]);
+        var places = Places([Found("Harry Potter Philosopher Stone Saga"), Found("Harry Potter Chamber")], [Read("Harry Potter Chamber")]);
 
         places.ShouldBe([null, 0]);
     }
@@ -189,17 +192,37 @@ public class PcShelfUpgradeTests
     public void A_donor_whose_two_best_server_reads_are_close_lends_to_neither()
     {
         // Shares 0.8 and 0.8 (a tie) lend to neither; shares 1.0 and 0.67 are far enough apart for the closer one to take it.
-        PlacesOf([Found("Quill Harbor Tides"), Found("Quill Harbor Redux")], [Read("Quill Harbor")]).ShouldBe([null, null]);
-        PlacesOf([Found("Quill Harbor"), Found("Quill Harbor Tides Redux")], [Read("Quill Harbor")]).ShouldBe([0, null]);
+        Places([Found("Quill Harbor Tides"), Found("Quill Harbor Redux")], [Read("Quill Harbor")]).ShouldBe([null, null]);
+        Places([Found("Quill Harbor"), Found("Quill Harbor Tides Redux")], [Read("Quill Harbor")]).ShouldBe([0, null]);
     }
 
     [Fact]
     public void A_server_read_of_one_word_or_one_shared_word_has_no_place()
     {
-        PlacesOf([Read("Zebra")], [Read("Zebra")]).ShouldBe([null], "a one-word title");
-        PlacesOf([Found("Quill Harbor Tides")], [Read("Tides")]).ShouldBe([null], "one word in common");
-        PlacesOf([Found("Quill Harbor Tides")], [Read("Copper Meadow Song")]).ShouldBe([null], "no word in common");
-        PlacesOf([Found("Quill Harbor Tides")], []).ShouldBe([null], "nothing to place it at");
+        Places([Read("Zebra")], [Read("Zebra")]).ShouldBe([null], "a one-word title");
+        Places([Found("Quill Harbor Tides")], [Read("Tides")]).ShouldBe([null], "one word in common");
+        Places([Found("Quill Harbor Tides")], [Read("Copper Meadow Song")]).ShouldBe([null], "no word in common");
+        Places([Found("Quill Harbor Tides")], []).ShouldBe([null], "nothing to place it at");
+    }
+
+    [Fact]
+    public void A_fragment_does_not_lend_to_a_server_read_when_a_longer_read_at_its_place_names_another_book()
+    {
+        var full = Read("Lord Rings Two Towers", "Lord Rings Two Towers");
+        var fragment = Read("Lord Rings");
+        var returnOfTheKing = Found("Lord Rings Return King");
+
+        PlacesOf([returnOfTheKing], [new PlaceDonor(fragment, [full])]).ShouldBe([null], "the longer read at that place is another book");
+        PlacesOf([returnOfTheKing], [new PlaceDonor(fragment, [])]).ShouldBe([0], "alone at its place, the fragment is the place of the title that replaces it");
+        PlacesOf([returnOfTheKing], [new PlaceDonor(fragment, [Read("Lord")])]).ShouldBe([0], "a one-word read at the place is no evidence");
+        PlacesOf([returnOfTheKing], [new PlaceDonor(fragment, [Read("Lord Rings Return King")])]).ShouldBe([0], "a read at the place that agrees does not block");
+    }
+
+    [Fact]
+    public void A_one_word_title_named_by_both_best_releases_has_no_place()
+    {
+        Places([Found("Dune")], [Found("Dune")]).ShouldBe([null], "equal best titles of one word are not a place");
+        Places([Found("Dune Messiah")], [Found("Dune Messiah")]).ShouldBe([0], "equal best titles of two words are");
     }
 
     [Theory]

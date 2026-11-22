@@ -177,16 +177,55 @@ public class ShelfReadPlaceTests(ApiFixture api) : ShelfReadTest(api)
     [Fact]
     public async Task No_box_is_lent_when_the_server_read_names_no_release()
     {
-        var (editor, sessionId) = await ArrangeAsync(Harbor);
+        var (editor, sessionId) = await ArrangeAsync();
         using var _ = editor;
-        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneBook("Quill Harbor", 0.3, modelOnly: true));
-        Reader.Answer = _ => ScriptedReader.Found("Zorblax Quill Harbor Saga"); // not in the catalogue: the phone's rows all stand
+
+        // Four spines the catalogue has nothing for: identify skips each as an unfound spine, so each could lend its box.
+        var snap = await IdentifyShelfSnapAsync(
+            editor,
+            sessionId,
+            "shelf_segment",
+            PhoneBook("Nowhere Atlas Of Lost Tides", 0.1),
+            PhoneBook("Nowhere Almanac Of Far Bays", 0.3),
+            PhoneBook("Nowhere Ledger Of Grey Fens", 0.5),
+            PhoneBook("Nowhere Primer Of Cold Moors", 0.7));
+        Reader.Answer = _ => ScriptedReader.Found("Nowhere Atlas Of Lost Tides"); // not in the catalogue: the phone's rows all stand
 
         await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
 
         var rows = await ServerRowsAsync(sessionId);
         rows.Single().BoxX.ShouldBeNull();
         rows.Single().SegmentId.ShouldBe(Segment);
+    }
+
+    [Fact]
+    public async Task A_skipped_row_at_the_place_of_a_standing_row_of_another_book_does_not_lend_its_box()
+    {
+        var (editor, sessionId) = await ArrangeAsync(Harbor, Meadow);
+        using var _ = editor;
+        var standing = Read(title: Meadow, kind: "game", format: "game_cartridge", year: 1996, segmentId: Segment);
+        standing["box"] = new { x = 0.3, y = 0.1, width = 0.05, height = 0.8 };
+        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", standing, PhoneBook("Quill Harbor", 0.3, modelOnly: true));
+        Reader.Answer = _ => ScriptedReader.Found(Harbor);
+
+        await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
+
+        (await ServerRowsAsync(sessionId)).Single().BoxX.ShouldBeNull("the standing row of another book still shows at that place");
+        (await PhoneRowAsync(sessionId, Meadow)).BoxX.ShouldBe(0.3);
+    }
+
+    [Fact]
+    public async Task A_fragment_does_not_light_the_spine_of_another_book_its_longer_read_names()
+    {
+        var (editor, sessionId) = await ArrangeAsync("Lord Rings Return King");
+        using var _ = editor;
+        var snap = await IdentifyShelfSnapAsync(
+            editor, sessionId, "shelf_segment", PhoneBook("Lord Rings Two Towers", 0.3, modelOnly: true), PhoneBook("Lord Rings", 0.3, modelOnly: true));
+        Reader.Answer = _ => ScriptedReader.Found("Lord Rings Return King");
+
+        await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
+
+        (await ServerRowsAsync(sessionId)).Single().BoxX.ShouldBeNull("the full read at that place is another book");
     }
 
     [Fact]

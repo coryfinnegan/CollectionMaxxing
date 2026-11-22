@@ -138,13 +138,22 @@ public static class PcShelfUpgrade
     }
 
     /// <summary>
-    /// Which donor (a phone read with a box that will not keep showing: <paramref name="donors"/>) sits where each server read is, so the
-    /// app can light it on the photo (#835). Returns, for each server read, the index of its donor or null. The best pairs go first across
-    /// all server reads and donors (highest <see cref="PlaceShare"/>; a tie goes to the earlier donor, then the earlier server read), and
-    /// each donor and each server read is used once. A donor whose two best server reads are within <see cref="PlaceMargin"/> of each
-    /// other lends to neither: it cannot tell which of them it was (a wrong place is worse than none). Pure; it never changes which reads stand.
+    /// A phone read with a box that will not keep showing, and every other phone read of the snap at its place (<c>ReadBox.SamePlaceAs</c>:
+    /// standing, left out or skipped alike).
     /// </summary>
-    public static IReadOnlyList<int?> PlacesOf(IReadOnlyList<ShelfRead> server, IReadOnlyList<ShelfRead> donors)
+    public sealed record PlaceDonor(ShelfRead Read, IReadOnlyList<ShelfRead> SamePlace);
+
+    /// <summary>
+    /// Which donor (<paramref name="donors"/>) sits where each server read is, so the app can light it on the photo (#835). Returns, for
+    /// each server read, the index of its donor or null. A donor does not lend to a server read when another read at its place, of at
+    /// least <see cref="MinPlaceWords"/> title words of its own, is not itself a place for that server read: a longer read there that
+    /// names another book wins over a fragment that agrees (a spine's full read and a fragment of it share a place, and the full read
+    /// says which book it is). The best pairs go first across all server reads and donors (highest <see cref="PlaceShare"/>; a tie goes
+    /// to the earlier donor, then the earlier server read), and each donor and each server read is used once. A donor whose two best
+    /// server reads are within <see cref="PlaceMargin"/> of each other lends to neither: it cannot tell which of them it was (a wrong
+    /// place is worse than none). Pure; it never changes which reads stand.
+    /// </summary>
+    public static IReadOnlyList<int?> PlacesOf(IReadOnlyList<ShelfRead> server, IReadOnlyList<PlaceDonor> donors)
     {
         var pairs = new List<(double Share, int Donor, int Server)>();
         for (var d = 0; d < donors.Count; d++)
@@ -152,7 +161,8 @@ public static class PcShelfUpgrade
             var own = new List<(double Share, int Server)>();
             for (var s = 0; s < server.Count; s++)
             {
-                if (PlaceShare(server[s], donors[d]) is { } share)
+                var disagrees = donors[d].SamePlace.Any(other => DistinctWords(other.ReadTitle).Count >= MinPlaceWords && PlaceShare(server[s], other) is null);
+                if (!disagrees && PlaceShare(server[s], donors[d].Read) is { } share)
                 {
                     own.Add((share, s));
                 }
