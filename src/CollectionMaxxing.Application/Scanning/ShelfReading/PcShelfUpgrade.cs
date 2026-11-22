@@ -103,6 +103,93 @@ public static class PcShelfUpgrade
         return visionWords.Count(serverWords.Contains) * 3 >= visionWords.Count * 2;
     }
 
+    /// <summary>The fewest words a server read and a phone read must share for the phone's box to be the server read's place: one shared word is a coincidence.</summary>
+    public const int MinPlaceWords = 2;
+
+    /// <summary>How far apart the shares of a donor's two best server reads must be for it to pick one: closer than this and it lends to neither.</summary>
+    public const double PlaceMargin = 0.1;
+
+    /// <summary>
+    /// How well a phone read (<paramref name="donor"/>) names the same book as a server read, 0 to 1, or null when it is not a place for
+    /// it: <see cref="SameItem"/> must say so and they must share at least <see cref="MinPlaceWords"/> words (or their best releases'
+    /// titles are the same, of at least that many words; a share of 1). Otherwise the share of the words they have in common: twice the
+    /// shared count over both word counts, so a full title beats a fragment. A one-word server title can never pass.
+    /// </summary>
+    public static double? PlaceShare(ShelfRead server, ShelfRead donor)
+    {
+        if (!SameItem(server, donor))
+        {
+            return null;
+        }
+
+        var serverWords = DistinctWords(server.ReadTitle);
+        serverWords.UnionWith(PrintSupport.TitleWords(server.BestTitle));
+        var words = DistinctWords(donor.ReadTitle);
+        var shared = words.Count(serverWords.Contains);
+        var sameTitle = server.BestTitle is { } a && donor.BestTitle is { } b
+            && TitleNormalizer.Normalize(a) is { Length: > 0 } normal && normal == TitleNormalizer.Normalize(b)
+            && PrintSupport.TitleWords(a).Distinct().Count() >= MinPlaceWords;
+        if (shared < MinPlaceWords && !sameTitle)
+        {
+            return null;
+        }
+
+        return sameTitle ? 1.0 : 2.0 * shared / (words.Count + serverWords.Count);
+    }
+
+    /// <summary>
+    /// A phone read with a box that will not keep showing, and every other phone read of the snap at its place (<c>ReadBox.SamePlaceAs</c>:
+    /// standing, left out or skipped alike).
+    /// </summary>
+    public sealed record PlaceDonor(ShelfRead Read, IReadOnlyList<ShelfRead> SamePlace);
+
+    /// <summary>
+    /// Which donor (<paramref name="donors"/>) sits where each server read is, so the app can light it on the photo (#835). Returns, for
+    /// each server read, the index of its donor or null. A donor does not lend to a server read when another read at its place, of at
+    /// least <see cref="MinPlaceWords"/> title words of its own, is not itself a place for that server read: a longer read there that
+    /// names another book wins over a fragment that agrees (a spine's full read and a fragment of it share a place, and the full read
+    /// says which book it is). The best pairs go first across all server reads and donors (highest <see cref="PlaceShare"/>; a tie goes
+    /// to the earlier donor, then the earlier server read), and each donor and each server read is used once. A donor whose two best
+    /// server reads are within <see cref="PlaceMargin"/> of each other lends to neither: it cannot tell which of them it was (a wrong
+    /// place is worse than none). Pure; it never changes which reads stand.
+    /// </summary>
+    public static IReadOnlyList<int?> PlacesOf(IReadOnlyList<ShelfRead> server, IReadOnlyList<PlaceDonor> donors)
+    {
+        var pairs = new List<(double Share, int Donor, int Server)>();
+        for (var d = 0; d < donors.Count; d++)
+        {
+            var own = new List<(double Share, int Server)>();
+            for (var s = 0; s < server.Count; s++)
+            {
+                var disagrees = donors[d].SamePlace.Any(other => DistinctWords(other.ReadTitle).Count >= MinPlaceWords && PlaceShare(server[s], other) is null);
+                if (!disagrees && PlaceShare(server[s], donors[d].Read) is { } share)
+                {
+                    own.Add((share, s));
+                }
+            }
+
+            var best = own.OrderByDescending(pair => pair.Share).ToList();
+            if (best.Count >= 2 && best[0].Share - best[1].Share < PlaceMargin)
+            {
+                continue;
+            }
+
+            pairs.AddRange(best.Select(pair => (pair.Share, d, pair.Server)));
+        }
+
+        var places = new int?[server.Count];
+        var used = new HashSet<int>();
+        foreach (var (_, donor, serverIndex) in pairs.OrderByDescending(pair => pair.Share).ThenBy(pair => pair.Donor).ThenBy(pair => pair.Server))
+        {
+            if (places[serverIndex] is null && used.Add(donor))
+            {
+                places[serverIndex] = donor;
+            }
+        }
+
+        return places;
+    }
+
     private static HashSet<string> DistinctWords(string? title) => [.. PrintSupport.TitleWords(title)];
 
     /// <summary>The kinds a shelf mixes as one: a book; a film or a TV show (both sit on the film shelf); a game; anything else.</summary>

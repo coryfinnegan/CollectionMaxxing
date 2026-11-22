@@ -215,7 +215,22 @@ public static class ReadShelfSnap
                 foreach (var candidate in settled.Added)
                 {
                     db.ScanCandidates.Add(candidate);
-                    db.ScanCandidates.Entry(candidate).Property(c => c.Seq).CurrentValue = nextSeq++; // Seq is history, so it is written through EF
+                    var entry = db.ScanCandidates.Entry(candidate);
+                    entry.Property(c => c.Seq).CurrentValue = nextSeq++; // Seq is history, so it is written through EF
+                    if (settled.Places is { } places && places.TryGetValue(candidate, out var place))
+                    {
+                        // Its place on the photo (#835): init-only, so written through the entry as identify writes them.
+                        entry.Property(c => c.SegmentId).CurrentValue = place.SegmentId;
+                        if (place.BoxFrom is { } from)
+                        {
+                            entry.Property(c => c.BoxX).CurrentValue = from.BoxX;
+                            entry.Property(c => c.BoxY).CurrentValue = from.BoxY;
+                            entry.Property(c => c.BoxW).CurrentValue = from.BoxW;
+                            entry.Property(c => c.BoxH).CurrentValue = from.BoxH;
+                            entry.Property(c => c.BoxSource).CurrentValue = from.BoxSource;
+                        }
+                    }
+
                     added.Add(candidate);
                 }
 
@@ -244,7 +259,10 @@ public static class ReadShelfSnap
         }
 
         /// <summary>What the read does to the snap: the server's rows to add, and the phone's rows that become server skips.</summary>
-        private sealed record Settled(List<ScanCandidate> Added, List<ScanCandidate> LeftOut);
+        private sealed record Settled(List<ScanCandidate> Added, List<ScanCandidate> LeftOut, IReadOnlyDictionary<ScanCandidate, Place>? Places = null);
+
+        /// <summary>Where an added server row sits on the photo (#835): the phone's segment id, and the phone row whose box it takes (null: none agrees).</summary>
+        private sealed record Place(string? SegmentId, ScanCandidate? BoxFrom);
 
         /// <summary>
         /// <see cref="PcShelfUpgrade"/> over the snap. The phone's rows are told apart by how identify stored them: a row whose read is
@@ -292,15 +310,62 @@ public static class ReadShelfSnap
 
             if (decision.PhoneStands)
             {
-                return new Settled(added, []); // the server named no release: no evidence against the phone's rows
+                return new Settled(added, [], PlacesOf(added, server, serverReads, phone, [], kinds, lend: false)); // the server named no release: no evidence against the phone's rows
             }
 
             var leftOut = vision.Where((row, j) => !decision.VisionKept[j] && !standsIn.Contains(row) && TheServersToChange(row, picked))
                 .Concat(model.Where(row => !standsIn.Contains(row) && TheServersToChange(row, picked)))
                 .OrderBy(row => row.Seq)
                 .ToList();
-            return new Settled(added, leftOut);
+            return new Settled(added, leftOut, PlacesOf(added, server, serverReads, phone, leftOut, kinds, lend: true));
         }
+
+        /// <summary>
+        /// The place of each server row that is added (<see cref="PcShelfUpgrade.PlacesOf"/>). A box may only be lent by a phone read that
+        /// will not keep showing after this read: a row this read leaves out (<paramref name="leftOut"/>) or one identify had already
+        /// skipped (a fragment, a repeat). Never by a row that stands (kept, standing in for a server release, or acted on by the person),
+        /// and never by a skipped row whose box is in the same place as a standing row's (<c>ReadBox.SamePlaceAs</c>: they share at
+        /// least the share of the smaller box the rest of the code base counts as one place), so two cards never light one spine. When
+        /// the phone's rows all stand (<paramref name="lend"/> false) no box is lent. A row with a donor carries the donor's segment id;
+        /// one without carries the snap's first phone segment id, boxed or not.
+        /// </summary>
+        private static Dictionary<ScanCandidate, Place> PlacesOf(
+            List<ScanCandidate> added,
+            List<ScanCandidate> server,
+            List<PcShelfUpgrade.ShelfRead> serverReads,
+            List<ScanCandidate> phone,
+            List<ScanCandidate> leftOut,
+            IReadOnlyDictionary<Guid, WorkKind> kinds,
+            bool lend)
+        {
+            var snapSegment = phone.Select(row => row.SegmentId).FirstOrDefault(id => id is not null);
+            var donors = new List<ScanCandidate>();
+            if (lend)
+            {
+                var going = new HashSet<ScanCandidate>(leftOut, ReferenceEqualityComparer.Instance);
+                var standing = phone.Where(row => !going.Contains(row) && !SkippedByTheReading(row)).Select(BoxOf).OfType<ReadBox>().ToList();
+                donors = [.. phone.Where(row => (going.Contains(row) || SkippedByTheReading(row))
+                    && BoxOf(row) is { } box && !standing.Any(other => other.SamePlaceAs(box)))];
+            }
+
+            // Every other phone read at a donor's place, whatever became of it: a longer read there that names another book blocks the donor.
+            var donorReads = donors.Select(row => new PcShelfUpgrade.PlaceDonor(
+                ShelfReadOf(row, StoredRead.From(row).Facts, kinds),
+                [.. phone.Where(other => !ReferenceEquals(other, row) && BoxOf(other) is { } box && BoxOf(row) is { } mine && mine.SamePlaceAs(box))
+                    .Select(other => ShelfReadOf(other, StoredRead.From(other).Facts, kinds))])).ToList();
+            var chosen = PcShelfUpgrade.PlacesOf([.. added.Select(row => serverReads[server.IndexOf(row)])], donorReads);
+            var places = new Dictionary<ScanCandidate, Place>(ReferenceEqualityComparer.Instance);
+            for (var i = 0; i < added.Count; i++)
+            {
+                var donor = chosen[i] is { } at ? donors[at] : null;
+                places[added[i]] = new Place(donor is null ? snapSegment : donor.SegmentId ?? snapSegment, donor);
+            }
+
+            return places;
+        }
+
+        private static ReadBox? BoxOf(ScanCandidate row) =>
+            row.BoxX is { } x && row.BoxY is { } y && row.BoxW is { } w && row.BoxH is { } h ? new ReadBox(x, y, w, h) : null;
 
         /// <summary>The trace step a search again leaves (<c>SearchForCandidate</c>).</summary>
         private const string SearchStep = "search";
