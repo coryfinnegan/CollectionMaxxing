@@ -256,6 +256,12 @@ test.describe('visual', () => {
       await expectShot(page, 'review-walk-end');
     });
 
+    test('review walk wide shelf', async ({ page, open }) => {
+      await openWalk(page, open, shelfSnap(WIDE_SHELF, WIDE_SPINES));
+      await showMatch(page, 'Suddenly You', 0);
+      await expectShot(page, 'review-walk-wide-shelf');
+    });
+
     test.describe('dark', () => {
       test.use({ colorScheme: 'dark' });
 
@@ -483,8 +489,29 @@ const SPINES: { title: string; w: number; h: number; fill: string; ink: string; 
   { title: 'Small Hours', w: 102, h: 760, fill: '#b44b3a', ink: '#fff3e0' },
 ];
 
-function shelfSnap() {
-  let x = 70;
+type Spine = { title: string; w: number; h: number; fill: string; ink: string; localId?: string };
+
+/**
+ * A wide landscape shelf of thirty narrow spines (a typical full shelf photo), the pick lit near the middle: the band must still
+ * zoom in on it, with its neighbors readable and dimmed.
+ */
+const WIDE_SHELF = { width: 2576, height: 1449, board: 1360, start: 22 };
+const WORDS = ['Harbor', 'Lantern', 'Orchard', 'Cedar', 'Marlow', 'Winter', 'Field', 'Hours', 'Quiet', 'Copper', 'Willow', 'Ember', 'Meadow', 'Signal', 'Tidewater'];
+const PALETTE: [string, string][] = [
+  ['#2f4858', '#f4f1ea'], ['#8a3b2e', '#f6e7c8'], ['#4a5d3a', '#f4f1ea'], ['#c2702b', '#1d1206'], ['#5b3f6b', '#f0e6f5'],
+  ['#1f3d2b', '#e9e2c9'], ['#7a2f45', '#f4f1ea'], ['#2b2b38', '#dddddd'], ['#9a8a5a', '#1a1a12'], ['#36536b', '#f4f1ea'], ['#b44b3a', '#fff3e0'],
+];
+const WIDE_SPINES: Spine[] = Array.from({ length: 30 }, (_, i) => {
+  const [fill, ink] = PALETTE[(i * 7) % PALETTE.length]!;
+  const ids: Record<number, string> = { 8: 'seed-owned', 15: 'seed-pick', 20: 'seed-lost', 25: 'seed-waiting' };
+  if (i === 15) return { title: 'Suddenly You · Lisa Kleypas', w: 84, h: 1240, fill: '#e7d3b0', ink: '#3a2a1a', localId: ids[i] };
+  return { title: `${WORDS[i % WORDS.length]} ${WORDS[(i * 4 + 3) % WORDS.length]}`, w: 70 + ((i * 13) % 16), h: 1060 + ((i * 37) % 200), fill, ink, ...(ids[i] ? { localId: ids[i] } : {}) };
+});
+
+function shelfSnap(shelf: { width: number; height: number; board: number; start?: number } = SHELF, spines: Spine[] = SPINES) {
+  const SHELF = shelf;
+  const SPINES = spines;
+  let x = shelf.start ?? 70;
   const parts: string[] = [];
   const items: { localId: string; text: string; box: { x: number; y: number; width: number; height: number } }[] = [];
   for (const s of SPINES) {
@@ -505,8 +532,7 @@ function shelfSnap() {
 }
 
 /** Opens the seeded Review on a phone, with the drawn shelf in the phone's snap store as a shelf snap would have left it. */
-async function openWalk(page: Page, open: (path: string) => Promise<void>) {
-  const snap = shelfSnap();
+async function openWalk(page: Page, open: (path: string) => Promise<void>, snap = shelfSnap()) {
   await page.addInitScript((stored) => {
     // react-native-mmkv on the web keeps each instance's keys in localStorage as `<id>\<key>`.
     localStorage.setItem('snap-store\\snap-store-v1', JSON.stringify([{ ...stored, createdAt: Date.now() }]));

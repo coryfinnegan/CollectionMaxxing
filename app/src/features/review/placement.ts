@@ -79,58 +79,53 @@ export function isTall(box: Rect, still: Size): boolean {
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 const round = (n: number) => Math.round(n * 100) / 100;
 
-/** The band's window: never narrower than this share of the photo. */
-export const MIN_WINDOW = 0.35;
-/** The lit item and about one neighbor each side: the window is this many box widths wide. */
-const NEIGHBORS = 3.2;
+/** The band's height, in points. */
+export const BAND_HEIGHT = 220;
+/** The lit box is at least this wide in the band, so it is the first thing the eye lands on. */
+const MIN_BOX = 48;
+/** About three neighbors each side: the box takes at least this share of the band's width. */
+const MIN_SHARE = 1 / 7;
+/** A wide flat stack or a cover is never zoomed past this share of the band's width. */
+const MAX_SHARE = 0.6;
+/** How close the drawn outline comes to the band's edge. */
+const EDGE = 4;
 
 export interface BandView {
   /** The still, in band points (it overflows the band; the band clips it). */
   image: Placed;
-  /** The lit box, in band points. */
+  /** The outline to draw, in band points: the lit box, or the part of it the band shows, inset from the band's edges. */
   box?: Placed;
 }
 
-/** Room around the whole box, so all four of its edges always show. */
-const FIT_MARGIN = 1.1;
-/** How close the box may come to the band's edge; at the photo's own edge a sliver past the photo shows instead. */
-const EDGE = 4;
-
 /**
- * The band's view of the still: zoomed so the box and about one neighbor each side fill the band's width (never narrower than
- * 35% of the photo), but never so far that the whole box, with a margin, stops fitting the band: a tall spine zooms out until it
- * fits. Centered on the box, kept inside the photo, except that a box at the photo's edge keeps a few points of room so its
- * border shows. With no box, the whole photo, contained.
+ * The band's view of the still. Zoomed in so the lit box is at least 48 pt wide and at least a seventh of the band (about three
+ * neighbors each side), never past 60% of the band (a flat stack, a cover). The still always covers the whole band: no bars. The
+ * window is centered on the box and kept on the photo; a box at the photo's own edge moves the window just enough that its whole
+ * outline shows. A box taller (or wider) than the band is cropped, and its outline is drawn round the part that shows, 4 pt in
+ * from the band's edges, so all four edges always show. With no box, the whole photo, contained.
  */
 export function bandView(still: Size, box: Rect | undefined, band: Size): BandView {
   if (!box || band.width <= 0 || band.height <= 0 || still.width <= 0 || still.height <= 0) return { image: fitImage(band, still) };
-  const window = clamp(NEIGHBORS * box.width, MIN_WINDOW, 1) * still.width;
-  const scale = Math.min(
-    band.width / window,
-    band.height / Math.max(1e-9, box.height * still.height * FIT_MARGIN),
-    band.width / Math.max(1e-9, box.width * still.width * FIT_MARGIN),
-  );
+  const boxPx = Math.max(1e-9, box.width * still.width);
+  const zoomIn = Math.max(MIN_BOX / boxPx, (band.width * MIN_SHARE) / boxPx);
+  const cover = Math.max(band.width / still.width, band.height / still.height);
+  const scale = Math.max(cover, Math.min(zoomIn, (band.width * MAX_SHARE) / boxPx));
   const width = still.width * scale;
   const height = still.height * scale;
-  const cx = (box.x + box.width / 2) * width;
-  const cy = (box.y + box.height / 2) * height;
-  const kept = (offset: number, start: number, size: number, bandSize: number) =>
-    clamp(offset, EDGE - start, bandSize - EDGE - (start + size));
-  const left = kept(
-    width >= band.width ? clamp(band.width / 2 - cx, band.width - width, 0) : (band.width - width) / 2,
-    box.x * width,
-    box.width * width,
-    band.width,
-  );
-  const top = kept(
-    height >= band.height ? clamp(band.height / 2 - cy, band.height - height, 0) : (band.height - height) / 2,
-    box.y * height,
-    box.height * height,
-    band.height,
-  );
+  /** Centered on the box and kept on the photo; when the whole box fits the band, it also keeps EDGE of room round it. */
+  const offset = (start: number, size: number, imageSize: number, bandSize: number) => {
+    const onPhoto = clamp(bandSize / 2 - (start + size / 2), bandSize - imageSize, 0);
+    return size + 2 * EDGE <= bandSize ? clamp(onPhoto, EDGE - start, bandSize - EDGE - (start + size)) : onPhoto;
+  };
+  const left = offset(box.x * width, box.width * width, width, band.width);
+  const top = offset(box.y * height, box.height * height, height, band.height);
+  const x0 = Math.max(EDGE, left + box.x * width);
+  const y0 = Math.max(EDGE, top + box.y * height);
+  const x1 = Math.min(band.width - EDGE, left + (box.x + box.width) * width);
+  const y1 = Math.min(band.height - EDGE, top + (box.y + box.height) * height);
   return {
     image: { left: round(left), top: round(top), width: round(width), height: round(height) },
-    box: { left: round(left + box.x * width), top: round(top + box.y * height), width: round(box.width * width), height: round(box.height * height) },
+    box: { left: round(x0), top: round(y0), width: round(Math.max(0, x1 - x0)), height: round(Math.max(0, y1 - y0)) },
   };
 }
 

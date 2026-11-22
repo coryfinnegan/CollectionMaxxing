@@ -1,7 +1,7 @@
 // Where a row was found and how the walk draws it (#833): the photo, the lit box, the band's window and the upright strip.
 import type { PicSnap } from '@/features/scan/pipeline/pipelineStore';
 import type { StoredSnap } from '@/features/scan/pipeline/snapStore';
-import { MIN_WINDOW, bandView, isTall, placeOf, stripView } from './placement';
+import { BAND_HEIGHT, bandView, isTall, placeOf, stripView } from './placement';
 import { candidate } from './testData';
 
 const SPINE = { x: 0.4, y: 0.1, width: 0.05, height: 0.8 };
@@ -56,46 +56,68 @@ describe('placeOf', () => {
 });
 
 describe('the band', () => {
-  const band = { width: 358, height: 190 };
+  const band = { width: 390, height: BAND_HEIGHT };
+  /** A landscape shelf of about 30 narrow spines. */
+  const WIDE = { width: 2576, height: 1449 };
+  const thin = (x: number) => ({ x, y: 0.1, width: 0.028, height: 0.8 });
+  const covers = (view: ReturnType<typeof bandView>) => {
+    expect(view.image.left).toBeLessThanOrEqual(0);
+    expect(view.image.top).toBeLessThanOrEqual(0);
+    expect(view.image.left + view.image.width).toBeGreaterThanOrEqual(band.width);
+    expect(view.image.top + view.image.height).toBeGreaterThanOrEqual(band.height);
+  };
+  /** The drawn outline: all four edges inside the band. */
+  const outlined = (view: ReturnType<typeof bandView>) => {
+    const b = view.box!;
+    expect(b.left).toBeGreaterThanOrEqual(4);
+    expect(b.top).toBeGreaterThanOrEqual(4);
+    expect(b.left + b.width).toBeLessThanOrEqual(band.width - 4);
+    expect(b.top + b.height).toBeLessThanOrEqual(band.height - 4);
+  };
 
-  it('zooms onto the lit item and about one neighbor each side, centered on it', () => {
-    const view = bandView(STILL, { x: 0.4, y: 0.4, width: 0.05, height: 0.15 }, band);
-    // 3.2 box widths is narrower than 35% of the photo, so the window is 35% wide.
-    expect(view.image.width).toBeCloseTo(band.width / MIN_WINDOW, 0);
+  it('A spine on a wide shelf photo is at least 48 pt wide in the band', () => {
+    const view = bandView(WIDE, thin(0.48), band);
+    expect(view.box!.width).toBeGreaterThanOrEqual(48);
+    // No more than about three neighbors each side: the spine takes at least a seventh of the band.
+    expect(view.box!.width).toBeGreaterThanOrEqual(band.width / 7 - 0.01); // rounded to the hundredth
+    // Centered on the spine.
     expect(view.box!.left + view.box!.width / 2).toBeCloseTo(band.width / 2, 0);
   });
 
-  it('zooms out until the whole of a tall spine fits the band, with a margin', () => {
-    const view = bandView(STILL, SPINE, band);
-    expect(view.box!.height).toBeCloseTo(band.height / 1.1, 0);
+  it('The photo always fills the band: no bars beside or above it', () => {
+    covers(bandView(WIDE, thin(0.48), band));
+    covers(bandView(STILL, SPINE, band));
+    covers(bandView({ width: 1932, height: 2576 }, { x: 0.46, y: 0.25, width: 0.08, height: 0.5 }, band));
+    covers(bandView(STILL, { x: 0.2, y: 0.5, width: 0.6, height: 0.1 }, band));
   });
 
-  it('stays on the photo except for a sliver beside a box at its very edge', () => {
-    const view = bandView(STILL, { x: 0, y: 0.4, width: 0.05, height: 0.15 }, band);
-    expect(view.image.left).toBeGreaterThan(0);
-    expect(view.image.left).toBeLessThanOrEqual(6);
+  it('A spine taller than the band is cropped, and its outline still shows all four edges inside the band', () => {
+    const view = bandView(WIDE, thin(0.48), band);
+    // The spine itself runs past the band (it is cropped) ...
+    expect(view.image.height * 0.8).toBeGreaterThan(band.height);
+    // ... and the outline is drawn round the part that shows.
+    outlined(view);
+    outlined(bandView({ width: 1932, height: 2576 }, { x: 0.46, y: 0.25, width: 0.08, height: 0.5 }, band));
   });
 
-  /** All four edges of the lit box are inside the band, with room to spare. */
-  const fullyShown = (view: ReturnType<typeof bandView>) => {
-    const b = view.box!;
-    expect(b.left).toBeGreaterThan(0);
-    expect(b.top).toBeGreaterThan(0);
-    expect(b.left + b.width).toBeLessThan(band.width);
-    expect(b.top + b.height).toBeLessThan(band.height);
-  };
-
-  it('shows all four edges of a tall narrow spine on a portrait photo', () => {
-    fullyShown(bandView({ width: 1932, height: 2576 }, { x: 0.46, y: 0.25, width: 0.08, height: 0.5 }, band));
+  it("A box at the photo's edge keeps its whole outline", () => {
+    for (const box of [thin(0), thin(1 - 0.028), { x: 0, y: 0, width: 0.05, height: 0.15 }]) {
+      const view = bandView(WIDE, box, band);
+      outlined(view);
+      expect(view.box!.width).toBeGreaterThanOrEqual(48);
+    }
   });
 
-  it('shows all four edges of a box at either side of the photo', () => {
-    fullyShown(bandView(STILL, { x: 0, y: 0.1, width: 0.05, height: 0.8 }, band));
-    fullyShown(bandView(STILL, { x: 0.95, y: 0.1, width: 0.05, height: 0.8 }, band));
+  it('A flat stack or a cover is not zoomed past 60% of the band', () => {
+    const flat = bandView(STILL, { x: 0.3, y: 0.5, width: 0.3, height: 0.08 }, band);
+    expect(flat.box!.width).toBeLessThanOrEqual(band.width * 0.6 + 0.01);
+    outlined(flat);
+    const cover = bandView(STILL, { x: 0.35, y: 0.25, width: 0.3, height: 0.5 }, band);
+    expect(cover.box!.width).toBeLessThanOrEqual(band.width * 0.6 + 0.01);
   });
 
-  it('shows all four edges of a box as wide as the photo', () => {
-    fullyShown(bandView(STILL, { x: 0, y: 0.4, width: 1, height: 0.1 }, band));
+  it('outlines a box as wide as the photo inside the band', () => {
+    outlined(bandView(STILL, { x: 0, y: 0.4, width: 1, height: 0.1 }, band));
   });
 
   it('shows the whole photo, contained, when the place is not known', () => {

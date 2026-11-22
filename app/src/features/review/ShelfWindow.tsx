@@ -12,9 +12,9 @@ import type { Placed, Size } from '@/features/scan/detail/overlay';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { Cover, Text } from '@/ui';
 import { motionMs } from '@/ui/motion';
-import { bandView, stripView } from './placement';
+import { BAND_HEIGHT, bandView, stripView } from './placement';
 
-export const BAND_HEIGHT = 190;
+export { BAND_HEIGHT };
 
 type Glide = { left: SharedValue<number>; top: SharedValue<number>; width: SharedValue<number>; height: SharedValue<number> };
 
