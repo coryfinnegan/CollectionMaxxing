@@ -244,6 +244,8 @@ test.describe('visual', () => {
       await page.getByRole('button', { name: 'Add this: Suddenly You' }).click();
       await expect(page.getByText('2 of 2', { exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: /^Not this one: / })).toBeEnabled();
+      // After an answer the answers hold for a moment (a double tap is one answer); this is the next, deliberate tap.
+      await page.waitForTimeout(400);
       await page.getByRole('button', { name: /^Not this one: / }).click();
       await expect(page.getByText("That's everything that needed you.")).toBeVisible();
       await expect(page.getByText('1 matched by itself.')).toBeVisible();
