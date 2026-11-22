@@ -155,6 +155,48 @@ public class PcShelfUpgradeTests
         decision.ServerConfirmed.ShouldBe([false]);
     }
 
+    [Fact]
+    public void A_server_read_is_placed_at_the_phone_read_of_the_same_title()
+    {
+        var place = PlaceOf(Found("Quill Harbor Tides"), [Found("Copper Meadow Song"), Found("Quill Harbor Tides")]);
+
+        place.ShouldBe(1);
+    }
+
+    [Fact]
+    public void A_server_read_is_placed_at_a_fragment_that_shares_two_of_its_words()
+    {
+        var place = PlaceOf(Found("Quill Harbor Tides"), [Read("Quill Harbor")]);
+
+        place.ShouldBe(0);
+    }
+
+    [Fact]
+    public void The_phone_read_sharing_the_most_words_wins_and_a_tie_goes_to_the_earlier_one()
+    {
+        var server = Found("Quill Harbor Tides Almanac");
+
+        PlaceOf(server, [Read("Quill Harbor Tides"), Read("Quill Harbor Tides Almanac")]).ShouldBe(1, "all of its words are the server's");
+        PlaceOf(server, [Read("Harbor Tides Almanac"), Read("Quill Harbor Tides")]).ShouldBe(0, "equal shares: the earlier read");
+    }
+
+    [Fact]
+    public void A_phone_read_already_taken_is_not_offered_again()
+    {
+        var phone = new[] { Read("Quill Harbor Tides") };
+
+        PlaceOf(Found("Quill Harbor Tides"), phone, new HashSet<int> { 0 }).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_server_read_of_one_word_or_one_shared_word_has_no_place()
+    {
+        PlaceOf(Read("Zebra"), [Read("Zebra")]).ShouldBeNull("a one-word title");
+        PlaceOf(Found("Quill Harbor Tides"), [Read("Tides")]).ShouldBeNull("one word in common");
+        PlaceOf(Found("Quill Harbor Tides"), [Read("Copper Meadow Song")]).ShouldBeNull("no word in common");
+        PlaceOf(Found("Quill Harbor Tides"), []).ShouldBeNull("nothing to place it at");
+    }
+
     [Theory]
     [InlineData(ShelfReadStatus.Ok, true)]
     [InlineData(ShelfReadStatus.CutShort, true)]

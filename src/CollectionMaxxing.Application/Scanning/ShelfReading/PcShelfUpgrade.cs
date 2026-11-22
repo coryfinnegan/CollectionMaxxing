@@ -103,6 +103,57 @@ public static class PcShelfUpgrade
         return visionWords.Count(serverWords.Contains) * 3 >= visionWords.Count * 2;
     }
 
+    /// <summary>The fewest words a server read and a phone read must share for the phone's box to be the server read's place: one shared word is a coincidence.</summary>
+    public const int MinPlaceWords = 2;
+
+    /// <summary>
+    /// Which of the phone's reads sits where the server's read is, so the app can light it on the photo (#835). <paramref name="phone"/> are
+    /// the phone's reads of the same snap that have a box, in order (kept, skipped or left out alike: a fragment of the same spine is a
+    /// good place). One agrees when <see cref="SameItem"/> says so and they share at least <see cref="MinPlaceWords"/> words (or their best
+    /// releases' titles are the same, of at least that many words); a server read of fewer than that many words gets none. The highest
+    /// share of the words they have in common (twice the shared count over both word counts) wins; a tie goes to the earlier read. Indexes in <paramref name="taken"/> are not offered: a box
+    /// is used once. Returns the index in <paramref name="phone"/>, or null (a wrong place is worse than none). Pure; it never changes
+    /// which reads stand.
+    /// </summary>
+    public static int? PlaceOf(ShelfRead server, IReadOnlyList<ShelfRead> phone, IReadOnlySet<int>? taken = null)
+    {
+        var serverWords = DistinctWords(server.ReadTitle);
+        serverWords.UnionWith(PrintSupport.TitleWords(server.BestTitle));
+        if (serverWords.Count < MinPlaceWords)
+        {
+            return null;
+        }
+
+        int? best = null;
+        var bestShare = 0.0;
+        for (var i = 0; i < phone.Count; i++)
+        {
+            if ((taken is not null && taken.Contains(i)) || !SameItem(server, phone[i]))
+            {
+                continue;
+            }
+
+            var words = DistinctWords(phone[i].ReadTitle);
+            var shared = words.Count(serverWords.Contains);
+            var sameTitle = server.BestTitle is { } a && phone[i].BestTitle is { } b
+                && TitleNormalizer.Normalize(a) is { Length: > 0 } normal && normal == TitleNormalizer.Normalize(b)
+                && PrintSupport.TitleWords(a).Distinct().Count() >= MinPlaceWords;
+            if (shared < MinPlaceWords && !sameTitle)
+            {
+                continue;
+            }
+
+            var share = sameTitle ? 1.0 : 2.0 * shared / (words.Count + serverWords.Count);
+            if (best is null || share > bestShare)
+            {
+                best = i;
+                bestShare = share;
+            }
+        }
+
+        return best;
+    }
+
     private static HashSet<string> DistinctWords(string? title) => [.. PrintSupport.TitleWords(title)];
 
     /// <summary>The kinds a shelf mixes as one: a book; a film or a TV show (both sit on the film shelf); a game; anything else.</summary>
