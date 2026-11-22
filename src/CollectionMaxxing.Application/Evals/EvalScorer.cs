@@ -293,7 +293,8 @@ public static class EvalScorer
         var used = new bool[alsoInFrame.Count];
         foreach (var item in items)
         {
-            if (item.Best is not { } best || IsUnguessedProvisional(item) || truthItems.Any(t => TitleMatch(t, best)))
+            if (item.Best is not { } best || IsUnguessedProvisional(item) || truthItems.Any(t => TitleMatch(t, best))
+                || item.Candidates.Any(c => truthItems.Any(t => FullMatch(t, c))))
             {
                 continue;
             }

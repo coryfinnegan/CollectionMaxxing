@@ -160,6 +160,48 @@ public sealed class AlsoInFrameTruthTests : IDisposable
         shelf.InventedTitles.ShouldBe(0);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void A_row_whose_second_or_third_candidate_names_a_truth_item_keeps_its_top_3_credit_even_when_its_best_names_an_item_also_in_the_frame(int position)
+    {
+        var releases = new List<GroundedCandidate> { Release(Below, null, "book", "hardcover"), Release("Filler One", null, "book", "hardcover"), Release("Filler Two", null, "book", "hardcover") };
+        releases[position] = Release(OnShelf, null, "book", "hardcover");
+        var row = Ambiguous([.. releases]);
+
+        var withList = Score(Truth([BookItem(OnShelf)], [BookItem(Below)]), row).ShelfOf();
+        var without = Score(Truth([BookItem(OnShelf)], null), row).ShelfOf();
+
+        without.Top3Hits.ShouldBe(1);
+        withList.Top3Hits.ShouldBe(1);
+        withList.PredictedItems.ShouldBe(1);
+        withList.SetAside.ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_row_none_of_whose_candidates_names_a_truth_item_is_still_set_aside_however_many_candidates_it_carries()
+    {
+        // The scorer credits every candidate it is given (the phone sends at most three), so only a row with no truth match anywhere is set aside.
+        var row = Ambiguous(Release(Below, null, "book", "hardcover"), Release("Filler One", null, "book", "hardcover"), Release("Filler Two", null, "book", "hardcover"), Release("Filler Three", null, "book", "hardcover"));
+
+        var shelf = Score(Truth([BookItem(OnShelf)], [BookItem(Below)]), row).ShelfOf();
+
+        shelf.SetAside.ShouldBe(1);
+        shelf.PredictedItems.ShouldBe(0);
+    }
+
+    [Fact]
+    public void A_set_aside_row_without_a_segment_still_counts_as_accounted_for_so_the_photo_is_not_unreconciled()
+    {
+        var photo = Photo("s1", Apple, [Book(OnShelf), Book(Below)], capturedCount: 2);
+
+        var shelf = EvalScorer.Score([photo], Truth([BookItem(OnShelf)], [BookItem(Below)])).ShelfOf();
+
+        shelf.SetAside.ShouldBe(1);
+        shelf.UnreconciledPhotos.ShouldBe(0);
+        shelf.InventedTitles.ShouldBe(0);
+    }
+
     [Fact]
     public void A_missed_truth_item_names_no_set_aside_row_as_its_closest_read()
     {
