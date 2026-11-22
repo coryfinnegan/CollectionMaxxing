@@ -1,5 +1,5 @@
-using CollectionMaxxing.Application.ShelfReading;
 using CollectionMaxxing.Application.Recognition;
+using CollectionMaxxing.Application.ShelfReading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
