@@ -41,6 +41,7 @@ const all = [
   ['detectBarcodes', fixtures.detectBarcodes, 'DetectedCode', true],
   ['featurePrint', fixtures.featurePrint, 'FeaturePrint', false],
   ['readItems', fixtures.readItems, 'ReadItemsResult', false],
+  ['describeTextRequest', fixtures.describeTextRequest, 'TextRequestDescription', false],
 ] as const;
 
 describe('fixtures', () => {
@@ -94,6 +95,28 @@ describe('FakeVisionEngine', () => {
   it('replays the same rectangles however it is asked: the options shape a real search, not a recording', async () => {
     const plain = await engine.detectRectangles('fixture://shelf-of-three-dvds');
     await expect(engine.detectRectangles('fixture://shelf-of-three-dvds', { maximumAspectRatio: 1 })).resolves.toEqual(plain);
+  });
+
+  it('describes the scanner\'s own text request with the OS defaults, and what the options name written over them', async () => {
+    const own = await engine.describeTextRequest();
+    expect(own).toEqual(fixtures.describeTextRequest[0].output);
+    await expect(engine.describeTextRequest({ languages: ['fr-FR'], automaticallyDetectsLanguage: true, revision: 2 })).resolves.toEqual({
+      ...own,
+      revision: 2,
+      recognitionLanguages: ['fr-FR'],
+      automaticallyDetectsLanguage: true,
+    });
+  });
+
+  it('refuses an unsupported revision when it describes a request and before it reads', async () => {
+    await expect(engine.describeTextRequest({ revision: 9 })).rejects.toThrow(/no revision 9.*1, 2, 3/);
+    await expect(engine.recognizeText('fixture://book-cover-1', { revision: 9 })).rejects.toThrow(/no revision 9/);
+  });
+
+  it('describes the OS it was told it is', async () => {
+    const other = new FakeVisionEngine(undefined, { textRequest: { ...fixtures.describeTextRequest[0].output, supportedRevisions: [3], osBuild: 'Version 27.3 (Build 23D5103)' } });
+    await expect(other.describeTextRequest()).resolves.toMatchObject({ supportedRevisions: [3], osBuild: 'Version 27.3 (Build 23D5103)' });
+    await expect(other.describeTextRequest({ revision: 2 })).rejects.toThrow(/no revision 2/);
   });
 
   it('tells a crop from the whole picture when printing', async () => {
