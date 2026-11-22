@@ -21,6 +21,16 @@ describe('walk store', () => {
     expect(store.getState().walks.s6).toBeUndefined();
   });
 
+  it("keeps only the open scan's walk once another scan is open", () => {
+    const store = createWalkStore({ storage: new MemoryKeyValueStore() });
+    store.getState().update('old', (w) => joinWalk(w, ['a']));
+    store.getState().update('new', (w) => joinWalk(w, ['b']));
+    store.getState().keepOnly('new');
+    expect(Object.keys(store.getState().walks)).toEqual(['new']);
+    store.getState().keepOnly(null);
+    expect(store.getState().walks).toEqual({});
+  });
+
   it('starts fresh from a damaged file', () => {
     const storage = new MemoryKeyValueStore();
     storage.set('review-walk-v1', '{not json');

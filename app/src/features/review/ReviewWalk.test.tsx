@@ -17,11 +17,13 @@ import { resetItems } from '@/mocks/items';
 import { scanMock } from '@/mocks/scan';
 import { reviewMock } from '@/mocks/scan-review';
 import { server } from '@/mocks/server';
-import { renderWithProviders } from '@/test/render';
+import { clearLocalData } from '@/features/me/localData';
+import { makeQueryClient, renderWithProviders } from '@/test/render';
 import { createProvisionalOutbox, setProvisionalOutbox } from './provisionals';
 import { ReviewScreen } from './ReviewScreen';
+import { ANSWER_LOCK_MS } from './ReviewWalk';
 import { candidate, release } from './testData';
-import { createWalkStore, setWalkStore } from './walkStore';
+import { createWalkStore, getWalkStore, setWalkStore } from './walkStore';
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
   __esModule: true,
@@ -79,10 +81,14 @@ const open = async () => {
   await renderWithProviders(<ReviewScreen libraryId={MOCK_LIBRARY_ID} sessionId={SESSION} onOpenResult={onOpenResult} />);
   return onOpenResult;
 };
+/** One tap, then the answer lock lets go (a double tap is one answer), so the next tap is a deliberate one. */
 const press = async (label: string | RegExp) => {
   const target = await screen.findByLabelText(label);
   await act(async () => {
     fireEvent.press(target);
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, ANSWER_LOCK_MS + 20));
   });
 };
 /** The match on screen, as VoiceOver reads it. */
@@ -309,6 +315,7 @@ describe('the answers', () => {
     await press('Fix Emma');
     expect(await screen.findByRole('header', { name: 'Fix it' })).toBeTruthy();
     expect(screen.getByDisplayValue('Emma')).toBeTruthy();
+    await press('More ways to fix Emma');
     expect(screen.getByLabelText('Discard Emma')).toBeTruthy();
     expect(screen.getByText('Copies')).toBeTruthy();
   });
@@ -322,19 +329,53 @@ describe('the answers', () => {
     expect(await screen.findByDisplayValue('Dune Mess')).toBeTruthy();
   });
 
-  it('brings back the last card and its answer with Undo', async () => {
+  it('brings back the last card and its answer with Undo: the tick and the skip both go back', async () => {
     const a = serverRead('Emma', 2);
     const b = serverRead('Persuasion', 3);
-    seed([a, b]);
+    seed([a, b, confident('Dune', 1)]);
     await open();
     await press('Add this: Emma');
-    expect(await screen.findByText('2 of 2')).toBeTruthy();
     await waitFor(() => expect(onServer(a.id).decision).toBe('accepted'));
-    await waitFor(() => expect(screen.getByTestId('match-reel').props.accessibilityLabel).toMatch(/^Persuasion/));
+    await onCard(/^Persuasion/);
+    await press('Not this one: Persuasion');
+    await waitFor(() => expect(onServer(b.id).decision).toBe('rejected'));
+    expect(await screen.findByLabelText('Add 2 items')).toBeTruthy();
+    // Undo the skip: its PATCH puts the row back.
     await press('Undo the last answer');
-    expect(await screen.findByText('1 of 2')).toBeTruthy();
-    await waitFor(() => expect(screen.getByTestId('match-reel').props.accessibilityLabel).toMatch(/^Emma/));
+    await waitFor(() => expect(onServer(b.id).decision).toBe('undecided'));
+    await onCard(/^Persuasion/);
+    expect(screen.getByText('2 of 2', { exact: true })).toBeTruthy();
+    // Undo the add: the server hears it, and the row is not ticked any more.
+    await press('Undo the last answer');
+    await onCard(/^Emma/);
+    expect(screen.getByText('1 of 2', { exact: true })).toBeTruthy();
     await waitFor(() => expect(onServer(a.id).decision).toBe('undecided'));
+    // The same Review laid out as the list says what Add would add now: only Dune.
+    windowSize.mockReturnValue({ width: 1280, height: 800, scale: 1, fontScale: 1 });
+    await act(async () => {
+      useCardsStore.getState().merge([{ id: a.id, changeSeq: 9999 }], { announce: false });
+    });
+    expect(await screen.findByLabelText('Add 1 item')).toBeTruthy();
+  });
+
+  it('gives a card with no cover and no photo a layout of its own', async () => {
+    seed([serverRead('Emma', 2, { visibleText: 'EMMA AUSTEN' })]);
+    await open();
+    expect(await screen.findByTestId('walk-bare')).toBeTruthy();
+    expect(screen.getByText('Emma')).toBeTruthy();
+    expect(screen.getByText('Read as “EMMA AUSTEN”')).toBeTruthy();
+    expect(screen.getByText('No photo for this one.')).toBeTruthy();
+  });
+
+  it('shows the matches and the search first in Fix it, and the rest a tap away', async () => {
+    seed([pick({ visibleText: 'Alien' })]);
+    await open();
+    await press('Fix Alien');
+    expect(await screen.findByDisplayValue('Alien')).toBeTruthy();
+    expect(screen.getByText('Pick one')).toBeTruthy();
+    expect(screen.queryByText('Copies')).toBeNull();
+    await press('More ways to fix Alien');
+    expect(screen.getByText('Copies')).toBeTruthy();
   });
 
   it('survives a restart at the same card, with its offline answer still counted', async () => {
@@ -389,7 +430,60 @@ describe('late rows and server skips', () => {
   });
 });
 
+describe('an answer the server could not take', () => {
+  it('adds a card the server skipped and you added offline: the add wins at Add', async () => {
+    const a = serverRead('Emma', 2);
+    const b = serverRead('Persuasion', 3);
+    seed([a, b]);
+    await open();
+    await match();
+    onServer(a.id).decision = 'rejected';
+    await act(async () => {
+      useCardsStore.getState().skip([{ ...a, decision: 'rejected', skipReason: 'server_did_not_see', changeSeq: 501 }]);
+    });
+    expect(await screen.findByText('The server read this shelf differently')).toBeTruthy();
+    server.use(http.patch('*/api/v1/scan-sessions/:id/candidates/:cid', () => HttpResponse.error()));
+    await press('Add this: Emma');
+    await onCard(/^Persuasion/);
+    server.resetHandlers();
+    await press('Add this: Persuasion');
+    expect(await screen.findByLabelText('Add 2 items')).toBeTruthy();
+    await press('Add 2 items');
+    expect(await screen.findByText('Added 2 items')).toBeTruthy();
+    expect(onServer(a.id).createdItemId).toBeTruthy();
+  });
+});
+
 describe('the end', () => {
+  it('leaves out of Check them the rows you already added on the walk', async () => {
+    seed([serverRead('Emma', 2), confident('Dune', 1)]);
+    await open();
+    await press('Add this: Emma');
+    expect(await screen.findByText('1 matched by itself.')).toBeTruthy();
+    await press('Check the 1 matched by itself');
+    expect((await match()).props.accessibilityLabel).toMatch(/^Dune/);
+    await press('Add this: Dune');
+    expect(await screen.findByText('1 matched by itself.')).toBeTruthy();
+    expect(screen.queryByTestId('match-reel')).toBeNull();
+  });
+
+  it('forgets the walk once its scan is added', async () => {
+    seed([confident('Dune', 1), serverRead('Emma', 2)]);
+    await open();
+    await press('Add this: Emma');
+    await screen.findByLabelText('Add 2 items');
+    expect(getWalkStore().getState().walks[SESSION]).toBeDefined();
+    await press('Add 2 items');
+    expect(await screen.findByText('Added 2 items')).toBeTruthy();
+    expect(getWalkStore().getState().walks[SESSION]).toBeUndefined();
+  });
+
+  it('wipes every walk at sign-out', async () => {
+    getWalkStore().getState().update(SESSION, (w) => ({ ...w, order: ['x'] }));
+    await clearLocalData(makeQueryClient());
+    expect(getWalkStore().getState().walks).toEqual({});
+  });
+
   it('walks the confident rows with Check them', async () => {
     const a = confident('Dune', 1);
     const b = confident('Heat', 3);
@@ -446,6 +540,46 @@ describe('motion and access', () => {
     });
     // No slide: the next card is there in the same frame.
     expect(screen.getByTestId('match-reel').props.accessibilityLabel).toMatch(/^Persuasion/);
+  });
+
+  it('takes a double tap on Add this as one answer under Reduce Motion: the next card is never added unseen', async () => {
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
+    const a = serverRead('Emma', 2);
+    const b = serverRead('Persuasion', 3);
+    seed([a, b]);
+    await open();
+    await match();
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText(/^Add this: /));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText(/^Add this: /));
+    });
+    await waitFor(() => expect(onServer(a.id).decision).toBe('accepted'));
+    expect(screen.getByTestId('match-reel').props.accessibilityLabel).toMatch(/^Persuasion/);
+    expect(onServer(b.id).decision).toBe('undecided');
+    // The lock always lets go: a deliberate tap a moment later answers the next card.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 400));
+    });
+    await press('Add this: Persuasion');
+    await waitFor(() => expect(onServer(b.id).decision).toBe('accepted'));
+  });
+
+  it('holds the answers while a card moves', async () => {
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+    const a = serverRead('Emma', 2);
+    const b = serverRead('Persuasion', 3);
+    seed([a, b]);
+    await open();
+    await match();
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('Add this: Emma'));
+    });
+    expect(screen.getByLabelText('Add this: Emma').props.accessibilityState).toEqual(expect.objectContaining({ disabled: true }));
+    expect(screen.getByLabelText('Not this one: Emma').props.accessibilityState).toEqual(expect.objectContaining({ disabled: true }));
+    await onCard(/^Persuasion/);
+    expect(onServer(b.id).decision).toBe('undecided');
   });
 
   it('slides the old card away before the next one comes in', async () => {

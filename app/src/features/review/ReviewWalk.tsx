@@ -1,6 +1,6 @@
 // Review one at a time (#833), on a narrow screen: only the rows that need the person, each lit on its own shelf photo with a large
 // cover, answered with a button, then the next. The confident rows wait at the end with the one Add ("Check them" walks them too).
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useWindowDimensions } from 'react-native';
 import { useStore } from 'zustand';
 import type { CandidateDto, ReleaseDto } from '@/api/generated/models';
@@ -16,7 +16,7 @@ import { placeOf, type Place } from './placement';
 import { pairCropUri, thumbForLocalId } from './provisionals';
 import type { ReviewProps } from './ReviewList';
 import type { Review } from './RowSheets';
-import { TextAction } from './TextAction';
+import { motionMs } from '@/ui/motion';
 import {
   aheadOf,
   answerWalk,
@@ -36,6 +36,12 @@ import {
 } from './walk';
 import { WalkCard, type CardModel, type WalkKind } from './WalkCard';
 import { WalkEnd } from './WalkEnd';
+
+/**
+ * After any answer the answers hold this long, with or without motion: a double tap is one answer, never an answer to the next
+ * card the person has not seen. A timer lets go, never an animation, so the buttons cannot stick.
+ */
+export const ANSWER_LOCK_MS = 2 * motionMs.quick;
 
 type Checking = { kind: Exclude<WalkKind, 'needs'>; walk: WalkState };
 
@@ -78,16 +84,19 @@ export function ReviewWalk({ review, libraryId, onOpenResult, onScanBarcode, onS
   }, [current, walk.place, updateWalk]);
   const reachedEnd = !current && !review.loading;
   useEffect(() => {
-    if (reachedEnd && !walk.ended && review.sessionId) updateWalk((w) => ({ ...w, ended: true }));
-  }, [reachedEnd, walk.ended, review.sessionId, updateWalk]);
+    // Nothing to review (or the scan was just added) is not the end of a walk: no walk is saved for it.
+    if (reachedEnd && !walk.ended && review.sessionId && review.list.length > 0) updateWalk((w) => ({ ...w, ended: true }));
+  }, [reachedEnd, walk.ended, review.sessionId, review.list.length, updateWalk]);
   const atEnd = walk.ended || reachedEnd;
 
   // "Check them": the same card walk over the confident rows, or the rows you own. It lives only while it runs.
   const checkIds = useMemo(() => {
     if (!checking) return [];
-    const rows = checking.kind === 'owned' ? review.groups.owned : review.list.filter((c) => confident(c, review.draft));
+    // Rows already answered on the walk are not checked again: the count on the end and this walk agree.
+    const answered = new Set(review.walk.stack.map((a) => a.id));
+    const rows = (checking.kind === 'owned' ? review.groups.owned : review.list.filter((c) => confident(c, review.draft))).filter((c) => !answered.has(c.id));
     return orderRows(rows, places).map((c) => c.id);
-  }, [checking, review.groups.owned, review.list, review.draft, places]);
+  }, [checking, review.groups.owned, review.list, review.draft, review.walk.stack, places]);
   const checkSet = new Set(checkIds);
   const checkWalk = checking ? joinWalk(checking.walk, checkIds) : null;
   // A check walk with nothing left is over: the end shows again.
@@ -134,6 +143,19 @@ export function ReviewWalk({ review, libraryId, onOpenResult, onScanBarcode, onS
       ...(thumb ? { localThumb: thumb } : {}),
     };
   };
+
+  const lock = useRef(false);
+  /** One answer at a time: taps inside the lock are dropped. */
+  const once =
+    <A extends unknown[]>(answer: (...args: A) => unknown) =>
+    (...args: A) => {
+      if (lock.current) return;
+      lock.current = true;
+      setTimeout(() => {
+        lock.current = false;
+      }, ANSWER_LOCK_MS);
+      void answer(...args);
+    };
 
   /** Records an answer on the walk that is running. */
   const record = (answer: Answer) => {
@@ -207,13 +229,13 @@ export function ReviewWalk({ review, libraryId, onOpenResult, onScanBarcode, onS
         direction={direction}
         progress={progressLabel(progressOf(running, stillNeeds, card.id))}
         canUndo={running.stack.length > 0}
-        onUndo={() => void onUndo()}
+        onUndo={once(onUndo)}
         reading={checking ? null : reading}
         review={review}
         locations={locations}
-        onAdd={onAdd}
-        onNotThis={(c) => void onNotThis(c)}
-        onLeave={onLeave}
+        onAdd={once(onAdd)}
+        onNotThis={once(onNotThis)}
+        onLeave={once(onLeave)}
         onFixed={onFixed}
         onStop={checking ? () => setChecking(null) : undefined}
         onOpenPhoto={onOpenResult}
@@ -234,7 +256,6 @@ export function ReviewWalk({ review, libraryId, onOpenResult, onScanBarcode, onS
           {review.loadError}
         </Text>
       ) : null}
-      {(checkWalk ?? walk).stack.length > 0 && review.canAdd ? <TextAction label="Undo" accessibilityLabel="Undo the last answer" onPress={() => void onUndo()} /> : null}
       <WalkEnd
         review={review}
         locations={locations}
@@ -249,6 +270,7 @@ export function ReviewWalk({ review, libraryId, onOpenResult, onScanBarcode, onS
         onMore={() => updateWalk((w) => ({ ...w, ended: false }))}
         onCheck={onCheck}
         onSeeAll={onSeeAll}
+        onUndo={(checkWalk ?? walk).stack.length > 0 && review.canAdd ? once(onUndo) : undefined}
       />
       {extras}
     </Screen>

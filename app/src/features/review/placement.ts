@@ -91,20 +91,43 @@ export interface BandView {
   box?: Placed;
 }
 
+/** Room around the whole box, so all four of its edges always show. */
+const FIT_MARGIN = 1.1;
+/** How close the box may come to the band's edge; at the photo's own edge a sliver past the photo shows instead. */
+const EDGE = 4;
+
 /**
  * The band's view of the still: zoomed so the box and about one neighbor each side fill the band's width (never narrower than
- * 35% of the photo), centered on the box and kept inside the photo. With no box, the whole photo, contained.
+ * 35% of the photo), but never so far that the whole box, with a margin, stops fitting the band: a tall spine zooms out until it
+ * fits. Centered on the box, kept inside the photo, except that a box at the photo's edge keeps a few points of room so its
+ * border shows. With no box, the whole photo, contained.
  */
 export function bandView(still: Size, box: Rect | undefined, band: Size): BandView {
   if (!box || band.width <= 0 || band.height <= 0 || still.width <= 0 || still.height <= 0) return { image: fitImage(band, still) };
   const window = clamp(NEIGHBORS * box.width, MIN_WINDOW, 1) * still.width;
-  const scale = band.width / window;
+  const scale = Math.min(
+    band.width / window,
+    band.height / Math.max(1e-9, box.height * still.height * FIT_MARGIN),
+    band.width / Math.max(1e-9, box.width * still.width * FIT_MARGIN),
+  );
   const width = still.width * scale;
   const height = still.height * scale;
   const cx = (box.x + box.width / 2) * width;
   const cy = (box.y + box.height / 2) * height;
-  const left = width >= band.width ? clamp(band.width / 2 - cx, band.width - width, 0) : (band.width - width) / 2;
-  const top = height >= band.height ? clamp(band.height / 2 - cy, band.height - height, 0) : (band.height - height) / 2;
+  const kept = (offset: number, start: number, size: number, bandSize: number) =>
+    clamp(offset, EDGE - start, bandSize - EDGE - (start + size));
+  const left = kept(
+    width >= band.width ? clamp(band.width / 2 - cx, band.width - width, 0) : (band.width - width) / 2,
+    box.x * width,
+    box.width * width,
+    band.width,
+  );
+  const top = kept(
+    height >= band.height ? clamp(band.height / 2 - cy, band.height - height, 0) : (band.height - height) / 2,
+    box.y * height,
+    box.height * height,
+    band.height,
+  );
   return {
     image: { left: round(left), top: round(top), width: round(width), height: round(height) },
     box: { left: round(left + box.x * width), top: round(top + box.y * height), width: round(box.width * width), height: round(box.height * height) },

@@ -11,7 +11,6 @@ import type { Rect } from '@/native/cm-vision';
 import type { Placed, Size } from '@/features/scan/detail/overlay';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { Cover, Text } from '@/ui';
-import { darkColors } from '@/theme/tokens';
 import { motionMs } from '@/ui/motion';
 import { bandView, stripView } from './placement';
 
@@ -150,9 +149,9 @@ const styles = StyleSheet.create((theme) => ({
   fromLeft: { left: 0 },
   toRight: { right: 0 },
   outline: { position: 'absolute', borderWidth: 1, borderColor: theme.fixed.black, borderRadius: theme.radius.sm + 1 },
-  // The photo is a dark surface in either scheme (like the camera), so the box takes the accent as it is drawn on dark: bright
-  // amber. The light scheme's accent is a deep brown that disappears on a shelf.
-  accentBox: { flex: 1, borderWidth: 3, borderColor: darkColors.accent, borderRadius: theme.radius.sm },
+  // The photo is a dark surface in either scheme (like the camera), so the box is the fixed highlight, a bright amber. The light
+  // scheme's accent is a deep brown that disappears on a shelf.
+  accentBox: { flex: 1, borderWidth: 3, borderColor: theme.fixed.highlight, borderRadius: theme.radius.sm },
   strip: (outer: Size) => ({
     width: outer.width,
     height: outer.height,

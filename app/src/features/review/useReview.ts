@@ -78,12 +78,19 @@ export function useReview({
   // A row the server skips while Review is open (its own read of a shelf photo arrives late, #809) is kept by the cards store as
   // skipped (one rule for every path, see cardsStore): it joins the skipped rows here, with its reason and Put back.
   const serverSkipped = useCardsStore((s) => s.skipped);
+  // A row the person added on the walk that the server skipped and that the add could not reach (offline, or refused): the add
+  // wins. It counts in Add N and is accepted again, first thing, by the commit.
+  const rescued = useMemo(
+    () => Object.values(serverSkipped).filter((c) => draft.checked[c.id] === true && (!!c.release || !!draft.picks[c.id])),
+    [serverSkipped, draft.checked, draft.picks],
+  );
   const skippedList = useMemo(() => {
     const known = new Set(skipped.map((c) => c.id));
-    return skippedRows([...skipped, ...skippedCandidates(Object.values(serverSkipped)).filter((c) => !known.has(c.id))]);
-  }, [skipped, serverSkipped]);
+    const kept = new Set(rescued.map((c) => c.id));
+    return skippedRows([...skipped, ...skippedCandidates(Object.values(serverSkipped)).filter((c) => !known.has(c.id) && !kept.has(c.id))]);
+  }, [skipped, serverSkipped, rescued]);
   const groups = useMemo(() => groupCandidates(list), [list]);
-  const count = addCount(list, draft);
+  const count = addCount(list, draft) + rescued.length;
 
   useEffect(() => {
     if (!sessionId) {
@@ -163,6 +170,11 @@ export function useReview({
     },
     [sessionId, walkStore],
   );
+  // Only the open scan's walk is kept: a scan committed or discarded since leaves nothing behind. (With no scan open nothing is
+  // pruned here: a Review opened before its tray loads must not wipe the walk it is about to resume.)
+  useEffect(() => {
+    if (sessionId) walkStore.getState().keepOnly(sessionId);
+  }, [sessionId, walkStore]);
   // An answer given offline is in the saved walk, not on the server yet: it goes back into the draft, so Add still counts it.
   useEffect(() => {
     if (!sessionId) return;
@@ -282,6 +294,18 @@ export function useReview({
     // matched and checked, so the one commit below adds exactly what Add N counted. A pick that
     // cannot be saved stops the whole commit: nothing is added then.
     const flushed: string[] = [];
+    for (const c of rescued) {
+      try {
+        const pick = draft.picks[c.id];
+        await patchCandidate(sessionId, c.id, pick ? { releaseId: pick } : { decision: 'accepted' });
+        flushed.push(c.id);
+      } catch (error) {
+        setCommitError(`${friendlyError(error)} Nothing was added, and your picks are still checked.`);
+        inFlight.current = false;
+        setCommitting(false);
+        return;
+      }
+    }
     for (const c of picked(list, draft)) {
       const option = selectedPick(draft, c);
       if (!option) continue;
@@ -316,6 +340,7 @@ export function useReview({
       // The session is closed. Its rows go (the ones not added would otherwise return, ticked, in the next Review and fail
       // there), and so do the tray lines the server has in full. Scans still waiting on the phone stay and start the next session.
       useCardsStore.getState().endSession();
+      walkStore.getState().forget(sessionId); // the scan is added: its walk is over
       setSkipped([]); // the session is closed: its skipped rows can no longer be put back
       store.getState().closeSession();
       setDraft(emptyDraft());

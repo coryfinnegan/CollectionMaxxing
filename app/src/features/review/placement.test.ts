@@ -59,16 +59,43 @@ describe('the band', () => {
   const band = { width: 358, height: 190 };
 
   it('zooms onto the lit item and about one neighbor each side, centered on it', () => {
-    const view = bandView(STILL, SPINE, band);
-    // 3.2 spine widths is narrower than 35% of the photo, so the window is 35% wide.
+    const view = bandView(STILL, { x: 0.4, y: 0.4, width: 0.05, height: 0.15 }, band);
+    // 3.2 box widths is narrower than 35% of the photo, so the window is 35% wide.
     expect(view.image.width).toBeCloseTo(band.width / MIN_WINDOW, 0);
     expect(view.box!.left + view.box!.width / 2).toBeCloseTo(band.width / 2, 0);
   });
 
-  it('never shows past the edge of the photo', () => {
-    const view = bandView(STILL, { x: 0, y: 0.1, width: 0.05, height: 0.8 }, band);
-    expect(view.image.left).toBe(0);
-    expect(view.box!.left).toBe(0);
+  it('zooms out until the whole of a tall spine fits the band, with a margin', () => {
+    const view = bandView(STILL, SPINE, band);
+    expect(view.box!.height).toBeCloseTo(band.height / 1.1, 0);
+  });
+
+  it('stays on the photo except for a sliver beside a box at its very edge', () => {
+    const view = bandView(STILL, { x: 0, y: 0.4, width: 0.05, height: 0.15 }, band);
+    expect(view.image.left).toBeGreaterThan(0);
+    expect(view.image.left).toBeLessThanOrEqual(6);
+  });
+
+  /** All four edges of the lit box are inside the band, with room to spare. */
+  const fullyShown = (view: ReturnType<typeof bandView>) => {
+    const b = view.box!;
+    expect(b.left).toBeGreaterThan(0);
+    expect(b.top).toBeGreaterThan(0);
+    expect(b.left + b.width).toBeLessThan(band.width);
+    expect(b.top + b.height).toBeLessThan(band.height);
+  };
+
+  it('shows all four edges of a tall narrow spine on a portrait photo', () => {
+    fullyShown(bandView({ width: 1932, height: 2576 }, { x: 0.46, y: 0.25, width: 0.08, height: 0.5 }, band));
+  });
+
+  it('shows all four edges of a box at either side of the photo', () => {
+    fullyShown(bandView(STILL, { x: 0, y: 0.1, width: 0.05, height: 0.8 }, band));
+    fullyShown(bandView(STILL, { x: 0.95, y: 0.1, width: 0.05, height: 0.8 }, band));
+  });
+
+  it('shows all four edges of a box as wide as the photo', () => {
+    fullyShown(bandView(STILL, { x: 0, y: 0.4, width: 1, height: 0.1 }, band));
   });
 
   it('shows the whole photo, contained, when the place is not known', () => {

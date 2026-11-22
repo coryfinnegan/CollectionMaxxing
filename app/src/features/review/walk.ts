@@ -29,21 +29,71 @@ const sideOverlap = (a: Rect, b: Rect): number => {
   return overlap / Math.max(1e-9, Math.min(a.width, b.width));
 };
 
+/** How much two boxes overlap up and down, as a share of the shorter one. */
+const heightOverlap = (a: Rect, b: Rect): number => {
+  const overlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  return overlap / Math.max(1e-9, Math.min(a.height, b.height));
+};
+
+/** The gap between two boxes up and down (0 when they overlap). */
+const heightGap = (a: Rect, b: Rect): number => Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.height, b.y + b.height));
+
+/** Groups indexes that a rule joins, two at a time and transitively, so the groups never depend on the input's order. */
+function groupsOf(count: number, joined: (i: number, j: number) => boolean): number[] {
+  const parent = Array.from({ length: count }, (_, i) => i);
+  const root = (i: number): number => (parent[i] === i ? i : (parent[i] = root(parent[i]!)));
+  for (let i = 0; i < count; i++) for (let j = i + 1; j < count; j++) if (joined(i, j)) parent[root(i)] = root(j);
+  return parent.map((_, i) => root(i));
+}
+
+export interface ShelfKey {
+  /** Which shelf, counted from the top (0-based). */
+  shelf: number;
+  /** Where its column sits on the shelf, from the left (0-based). */
+  column: number;
+  /** Its top, for reading a stack top to bottom. */
+  top: number;
+  /** Its place on its shelf from the left, counting each book (1-based). */
+  position: number;
+}
+
 /**
- * Shelf order: left to right by each box's center. Boxes that overlap sideways by more than half the narrower one are a stack,
- * read top to bottom, and the stack takes its place in the row by its leftmost center.
+ * Where each box sits on the photo's shelves. Boxes whose heights overlap by more than half the shorter one stand on one shelf;
+ * shelves go top to bottom. On a shelf, boxes that overlap sideways by more than half the narrower one and touch up and down (a gap
+ * under the smaller one's height) are a stack, read top to bottom, in the row by its leftmost center. Everything else goes left to
+ * right by its center. Each box gets a key, so the order is one consistent sort whatever order the boxes come in.
  */
-export function shelfOrder<T>(entries: readonly { item: T; box: Rect }[]): T[] {
-  const columns: { item: T; box: Rect }[][] = [];
-  for (const entry of [...entries].sort((a, b) => centerX(a.box) - centerX(b.box))) {
-    const column = columns.find((col) => col.some((other) => sideOverlap(other.box, entry.box) > 0.5));
-    if (column) column.push(entry);
-    else columns.push([entry]);
+export function shelfKeys(boxes: readonly Rect[]): ShelfKey[] {
+  const shelfOf = groupsOf(boxes.length, (i, j) => heightOverlap(boxes[i]!, boxes[j]!) > 0.5);
+  const stackOf = groupsOf(
+    boxes.length,
+    (i, j) =>
+      shelfOf[i] === shelfOf[j] &&
+      sideOverlap(boxes[i]!, boxes[j]!) > 0.5 &&
+      heightGap(boxes[i]!, boxes[j]!) < Math.min(boxes[i]!.height, boxes[j]!.height),
+  );
+  const meanOf = (ids: number[], at: (b: Rect) => number) => ids.reduce((sum, i) => sum + at(boxes[i]!), 0) / ids.length;
+  const members = (groups: number[], g: number) => groups.flatMap((x, i) => (x === g ? [i] : []));
+  const shelves = [...new Set(shelfOf)].sort((a, b) => meanOf(members(shelfOf, a), (b2) => b2.y + b2.height / 2) - meanOf(members(shelfOf, b), (b2) => b2.y + b2.height / 2) || a - b);
+  const stackX = (g: number) => Math.min(...members(stackOf, g).map((i) => centerX(boxes[i]!)));
+  const keys: ShelfKey[] = boxes.map((b, i) => ({ shelf: shelves.indexOf(shelfOf[i]!), column: 0, top: b.y, position: 0 }));
+  for (const shelf of shelves) {
+    const onShelf = members(shelfOf, shelf);
+    const stacks = [...new Set(onShelf.map((i) => stackOf[i]!))].sort((a, b) => stackX(a) - stackX(b) || a - b);
+    for (const i of onShelf) keys[i]!.column = stacks.indexOf(stackOf[i]!);
+    const ordered = [...onShelf].sort((a, b) => keys[a]!.column - keys[b]!.column || keys[a]!.top - keys[b]!.top || a - b);
+    ordered.forEach((i, n) => (keys[i]!.position = n + 1));
   }
-  return columns
-    .map((col) => ({ x: Math.min(...col.map((e) => centerX(e.box))), col: [...col].sort((a, b) => a.box.y - b.box.y) }))
-    .sort((a, b) => a.x - b.x)
-    .flatMap(({ col }) => col.map((e) => e.item));
+  return keys;
+}
+
+/** Shelf order: shelf by shelf from the top, each left to right, a stack top to bottom (see `shelfKeys`). */
+export function shelfOrder<T>(entries: readonly { item: T; box: Rect }[]): T[] {
+  const keys = shelfKeys(entries.map((e) => e.box));
+  return entries
+    .map((e, i) => ({ item: e.item, key: keys[i]! }))
+    .sort((a, b) => a.key.shelf - b.key.shelf || a.key.position - b.key.position)
+    .map((e) => e.item);
 }
 
 /**
@@ -153,14 +203,14 @@ export function ordinal(n: number): string {
   return `${n}${suffix}`;
 }
 
-/** Where a row sits on its shelf among every boxed row of the same photo, counted from the left (1-based), or null without a box. */
+/** Where a row sits on its own shelf among every boxed row of the same photo, counted from the left (1-based), or null without a box. */
 export function shelfPosition(c: CandidateDto, list: readonly CandidateDto[], places: Readonly<Record<string, Place | null | undefined>>): number | null {
   const place = places[c.id];
   if (!place?.box) return null;
   const peers = list.filter((other) => places[other.id]?.snapId === place.snapId && places[other.id]?.box);
-  const order = shelfOrder(peers.map((other) => ({ item: other.id, box: places[other.id]!.box! })));
-  const index = order.indexOf(c.id);
-  return index < 0 ? null : index + 1;
+  const index = peers.findIndex((other) => other.id === c.id);
+  if (index < 0) return null;
+  return shelfKeys(peers.map((other) => places[other.id]!.box!))[index]!.position;
 }
 
 /** The line while a photo is still being read: "Still reading 1 photo. Its finds join the end." */

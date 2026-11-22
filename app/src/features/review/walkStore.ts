@@ -14,6 +14,10 @@ export interface WalkStore {
   recent: string[];
   update(sessionId: string, change: (walk: WalkState) => WalkState): void;
   forget(sessionId: string): void;
+  /** Keeps only the open scan's walk (none when no scan is open): a committed or discarded scan's walk goes. */
+  keepOnly(sessionId: string | null): void;
+  /** Sign-out, unpair, account deletion: no walk survives. */
+  clear(): void;
 }
 
 function load(storage: KeyValueStore): Pick<WalkStore, 'walks' | 'recent'> {
@@ -46,6 +50,12 @@ export function createWalkStore({ storage }: { storage: KeyValueStore }): StoreA
       const { [sessionId]: _gone, ...walks } = get().walks;
       set({ walks, recent: get().recent.filter((id) => id !== sessionId) });
     },
+    keepOnly: (sessionId) => {
+      const keep = sessionId ? get().walks[sessionId] : undefined;
+      if (Object.keys(get().walks).length === (keep ? 1 : 0)) return;
+      set(keep && sessionId ? { walks: { [sessionId]: keep }, recent: [sessionId] } : { walks: {}, recent: [] });
+    },
+    clear: () => set({ walks: {}, recent: [] }),
   }));
   store.subscribe((state) => {
     try {
@@ -70,6 +80,11 @@ function openStorage(): KeyValueStore {
 let current: StoreApi<WalkStore> | undefined;
 
 export const getWalkStore = (): StoreApi<WalkStore> => (current ??= createWalkStore({ storage: openStorage() }));
+
+/** Wipes every saved walk: registered with the other local data in `me/localData`. */
+export function clearWalkData(): void {
+  getWalkStore().getState().clear();
+}
 
 export const setWalkStore = (next: StoreApi<WalkStore> | undefined) => {
   current = next;

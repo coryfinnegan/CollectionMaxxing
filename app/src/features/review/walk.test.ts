@@ -66,6 +66,54 @@ describe('shelf order', () => {
     expect(shelfOrder(stack)).toEqual(['left', 'top', 'low', 'right']);
   });
 
+  it('walks a photo of two shelves shelf by shelf, top to bottom, each left to right', () => {
+    const top = (x: number) => ({ x, y: 0.05, width: 0.08, height: 0.4 });
+    const low = (x: number) => ({ x, y: 0.55, width: 0.08, height: 0.4 });
+    const entries = [
+      { item: 'a', box: top(0.1) },
+      { item: 'd', box: low(0.1) },
+      { item: 'b', box: top(0.4) },
+      { item: 'e', box: low(0.4) },
+      { item: 'c', box: top(0.7) },
+      { item: 'f', box: low(0.7) },
+    ];
+    expect(shelfOrder(entries)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+    // The same answer whatever order the boxes come in.
+    expect(shelfOrder([...entries].reverse())).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+  });
+
+  it('reads a flat stack beside upright spines top to bottom, in its place in the row', () => {
+    const entries = [
+      { item: 'spine-left', box: { x: 0.1, y: 0.1, width: 0.05, height: 0.8 } },
+      { item: 'flat-low', box: { x: 0.3, y: 0.8, width: 0.3, height: 0.1 } },
+      { item: 'flat-high', box: { x: 0.31, y: 0.7, width: 0.29, height: 0.1 } },
+      { item: 'spine-right', box: { x: 0.7, y: 0.1, width: 0.05, height: 0.8 } },
+    ];
+    expect(shelfOrder(entries)).toEqual(['spine-left', 'flat-high', 'flat-low', 'spine-right']);
+  });
+
+  it('keeps a row left to right under books lying across its top, which come first', () => {
+    const spine = (x: number) => ({ x, y: 0.3, width: 0.05, height: 0.65 });
+    const entries = [
+      { item: 'row-3', box: spine(0.5) },
+      { item: 'lying', box: { x: 0.1, y: 0.18, width: 0.35, height: 0.1 } },
+      { item: 'row-1', box: spine(0.1) },
+      { item: 'row-2', box: spine(0.3) },
+    ];
+    expect(shelfOrder(entries)).toEqual(['lying', 'row-1', 'row-2', 'row-3']);
+  });
+
+  it('counts a row its place from the left on its own shelf', () => {
+    const [a, b, c] = [serverRead(), serverRead(), serverRead()];
+    const places = {
+      [a!.id]: at('s', 1, { x: 0.5, y: 0.05, width: 0.08, height: 0.4 }),
+      [b!.id]: at('s', 1, { x: 0.1, y: 0.05, width: 0.08, height: 0.4 }),
+      [c!.id]: at('s', 1, { x: 0.3, y: 0.55, width: 0.08, height: 0.4 }),
+    };
+    expect(shelfPosition(c!, [a!, b!, c!], places)).toBe(1);
+    expect(shelfPosition(a!, [a!, b!, c!], places)).toBe(2);
+  });
+
   it('puts rows with no place after the placed rows of the same photo, then rows from no photo', () => {
     const [a, b, c, d, e] = [serverRead(), serverRead(), serverRead(), serverRead(), serverRead()];
     const places = {

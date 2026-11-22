@@ -45,6 +45,7 @@ export function WalkEnd({
   onMore,
   onCheck,
   onSeeAll,
+  onUndo,
 }: {
   review: Review;
   locations: LocationDto[];
@@ -55,6 +56,8 @@ export function WalkEnd({
   onMore(): void;
   onCheck(kind: 'confident' | 'owned'): void;
   onSeeAll(): void;
+  /** Steps back to the last card answered. */
+  onUndo?: () => void;
 }) {
   const reduceMotion = useReduceMotion();
   const [pickingFor, setPickingFor] = useState<string | null>(null);
@@ -64,9 +67,12 @@ export function WalkEnd({
   const check = (n: number) => (n === 1 ? 'Check it' : 'Check them');
   return (
     <Animated.View entering={maybeEntering(reduceMotion, FadeIn.duration(motionMs.base))} style={styles.root}>
-      <Text variant="heading" accessibilityRole="header">
-        {counts.walked > 0 ? "That's everything that needed you." : 'Nothing needed you this time.'}
-      </Text>
+      <View style={styles.headRow}>
+        <Text variant="heading" accessibilityRole="header" style={styles.heading}>
+          {counts.walked > 0 ? "That's everything that needed you." : 'Nothing needed you this time.'}
+        </Text>
+        {onUndo ? <TextAction label="Undo" accessibilityLabel="Undo the last answer" onPress={onUndo} /> : null}
+      </View>
       {reading ? (
         <Text tone="muted" accessibilityLiveRegion="polite">
           {reading}
@@ -110,6 +116,8 @@ export function WalkEnd({
 
 const styles = StyleSheet.create((theme) => ({
   root: { gap: theme.spacing.lg },
+  headRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
+  heading: { flex: 1 },
   counts: { gap: theme.spacing.xs },
   line: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: theme.spacing.xs },
   add: { minHeight: 52 },

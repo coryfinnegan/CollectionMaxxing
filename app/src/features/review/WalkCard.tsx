@@ -49,6 +49,7 @@ export type CardModel = {
 
 export const SERVER_SKIPPED_LINE = 'The server read this shelf differently';
 export const NOTHING_MATCHED = 'Nothing in the catalog matched';
+export const NO_PHOTO_LINE = 'No photo for this one.';
 const STRIP_MAX = 96;
 const STRIP_MAX_NO_COVER = 140;
 
@@ -167,6 +168,8 @@ export function WalkCard({
   // No cover art: a cover shot fills the slot with the phone's own picture; a spine lets the strip grow instead.
   const noArt = !!option && !option.coverUri;
   const ownPicture = noArt && still && box && !tall ? <SpineStrip still={still} box={box} max={{ width: large ? COVER_WIDTH_LARGE_TEXT : COVER_WIDTH, height: 240 }} label="Your photo" /> : null;
+  // No cover art and no picture of it at all: the card is the words, set out on purpose.
+  const bare = !still && !showing.cropUri && options.length <= 1 && !option?.coverUri;
   const stripMax = { width: inner, height: noArt || notFound ? STRIP_MAX_NO_COVER : STRIP_MAX };
 
   const onIndex = (next: number) => {
@@ -175,10 +178,13 @@ export function WalkCard({
     const release = options[next]?.release;
     if (pick && release) review.select(c, release); // stages the pick; only Add this decides
   };
+  // Fix it opens with the matches and the search at the top of the screen; the rest waits behind "More ways to fix".
+  const [moreFor, setMoreFor] = useState<string | null>(null);
   const openFix = () => {
     setFixFor(c.id);
-    setTimeout(() => scroll.current?.scrollToEnd({ animated: !reduceMotion }), 0);
+    setMoreFor(null);
   };
+  const showFix = (e: LayoutChangeEvent) => scroll.current?.scrollTo({ y: e.nativeEvent.layout.y, animated: !reduceMotion });
   const owned = showing.kind === 'owned';
   const error = review.rowErrors[c.id];
 
@@ -240,12 +246,16 @@ export function WalkCard({
           {!still && showing.cropUri ? <CropStrip title={title} uri={showing.cropUri} /> : null}
 
           {option ? (
-            <MatchReel ref={matchRef} options={options} index={index} onIndex={onIndex} ownPicture={ownPicture ? <OwnPicture>{ownPicture}</OwnPicture> : undefined} fontScale={fontScale} />
+            <MatchReel ref={matchRef} options={options} index={index} onIndex={onIndex} ownPicture={ownPicture ? <OwnPicture>{ownPicture}</OwnPicture> : undefined}
+              bare={bare ? { readAs: c.visibleText ? `Read as “${c.visibleText}”` : null, note: place ? null : NO_PHOTO_LINE } : undefined}
+              fontScale={fontScale}
+            />
           ) : (
-            <View ref={titleRef} accessible accessibilityLabel={`${title}. ${NOTHING_MATCHED}`} style={styles.notFound}>
-              <Text variant="heading">{title}</Text>
+            <View ref={titleRef} testID={place ? undefined : 'walk-bare'} accessible accessibilityLabel={`${title}. ${NOTHING_MATCHED}`} style={place ? styles.notFound : styles.bare}>
+              <Text variant={place ? 'heading' : 'title'}>{title}</Text>
               {c.visibleText ? <Text variant="mono">{`Read as “${c.visibleText}”`}</Text> : null}
               <Text tone="muted">{NOTHING_MATCHED}</Text>
+              {place ? null : <Text tone="muted">{NO_PHOTO_LINE}</Text>}
             </View>
           )}
 
@@ -257,7 +267,7 @@ export function WalkCard({
           ) : null}
 
           {fixing && review.canAdd ? (
-            <View style={styles.fix}>
+            <View style={styles.fix} onLayout={showFix}>
               <FixItPanel
                 candidate={c}
                 sessionId={review.sessionId}
@@ -266,6 +276,9 @@ export function WalkCard({
                   onFixed(c);
                 }}
               />
+              {moreFor !== c.id ? (
+                <Button label="More ways to fix" accessibilityLabel={`More ways to fix ${title}`} variant="secondary" onPress={() => setMoreFor(c.id)} />
+              ) : (
               <View style={styles.extras}>
                 {onSnapCover ? <SnapCoverButton title={title} onPress={() => onSnapCover(c)} /> : null}
                 {onScanBarcode ? <ScanBarcodeButton title={title} onPress={() => onScanBarcode(c)} /> : null}
@@ -273,6 +286,7 @@ export function WalkCard({
                 {c.release ? <CandidateFields c={c} review={review} locations={locations} pickingFor={pickingFor} setPickingFor={setPickingFor} /> : null}
                 <Button label="Discard" accessibilityLabel={`Discard ${title}`} variant="danger" busy={busy} onPress={() => void review.discard(c)} />
               </View>
+              )}
             </View>
           ) : null}
         </Animated.View>
@@ -327,6 +341,15 @@ const styles = StyleSheet.create((theme) => ({
   push: { marginLeft: 'auto' },
   body: { paddingHorizontal: theme.spacing.lg, gap: theme.spacing.md },
   notFound: { gap: theme.spacing.xs },
+  bare: {
+    gap: theme.spacing.sm,
+    alignSelf: 'stretch',
+    padding: theme.spacing.xl,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: theme.colors.surface,
+  },
   fix: { gap: theme.spacing.md },
   extras: { gap: theme.spacing.sm },
   own: { gap: theme.spacing.xs, alignItems: 'center' },

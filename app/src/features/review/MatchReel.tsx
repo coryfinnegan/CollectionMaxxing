@@ -44,8 +44,10 @@ export const MatchReel = forwardRef<View, {
   onIndex(index: number): void;
   /** What fills the cover slot when the match has no art (the phone's own picture of a cover), or nothing. */
   ownPicture?: ReactNode;
+  /** No cover and no picture at all: the card is the words, large, with what the phone read and why there is no picture. */
+  bare?: { readAs: string | null; note: string | null };
   fontScale: number;
-}>(function MatchReel({ options, index, onIndex, ownPicture, fontScale }, ref) {
+}>(function MatchReel({ options, index, onIndex, ownPicture, bare, fontScale }, ref) {
   const [width, setWidth] = useState(0);
   const scroller = useRef<ScrollView>(null);
   const shown = useRef(index);
@@ -103,22 +105,38 @@ export const MatchReel = forwardRef<View, {
         onMomentumScrollEnd={settle}
       >
         {options.map((option, i) => (
-          <Page key={option.release.id} option={option} index={i} count={options.length} width={width} large={large} ownPicture={ownPicture} />
+          <Page key={option.release.id} option={option} index={i} count={options.length} width={width} large={large} ownPicture={ownPicture} bare={bare} />
         ))}
       </ScrollView>
     </View>
   );
 });
 
-function Page({ option, index, count, width, large, ownPicture }: { option: MatchOption; index: number; count: number; width: number; large: boolean; ownPicture?: ReactNode }) {
+function Page({
+  option,
+  index,
+  count,
+  width,
+  large,
+  ownPicture,
+  bare,
+}: {
+  option: MatchOption;
+  index: number;
+  count: number;
+  width: number;
+  large: boolean;
+  ownPicture?: ReactNode;
+  bare?: { readAs: string | null; note: string | null };
+}) {
   const { creators, detail } = factsOf(option.release);
   const coverWidth = large ? COVER_WIDTH_LARGE_TEXT : COVER_WIDTH;
   const slot = option.coverUri ? <Cover title={option.release.title} uri={option.coverUri} width={coverWidth} /> : ownPicture;
   return (
-    <View style={styles.page(width, large)}>
+    <View testID={bare ? 'walk-bare' : undefined} style={[styles.page(width, large), bare ? styles.bare : null]}>
       {slot ? <View testID={option.coverUri ? 'match-cover' : 'match-own-picture'}>{slot}</View> : null}
       <View style={styles.facts(large)}>
-        <Text variant="heading" numberOfLines={4}>
+        <Text variant={bare ? 'title' : 'heading'} numberOfLines={4}>
           {option.release.title}
         </Text>
         {creators ? <Text numberOfLines={2}>{creators}</Text> : null}
@@ -129,6 +147,8 @@ function Page({ option, index, count, width, large, ownPicture }: { option: Matc
             {option.reason}
           </Text>
         ) : null}
+        {bare?.readAs ? <Text variant="mono">{bare.readAs}</Text> : null}
+        {bare?.note ? <Text tone="muted">{bare.note}</Text> : null}
         {count > 1 ? (
           <Text variant="caption" tone="muted">
             {`Match ${index + 1} of ${count}`}
@@ -146,5 +166,12 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: 'flex-start' as const,
     gap: theme.spacing.md,
   }),
+  bare: {
+    padding: theme.spacing.xl,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: theme.colors.surface,
+  },
   facts: (large: boolean) => (large ? { alignSelf: 'stretch' as const, gap: theme.spacing.xs } : { flex: 1, minWidth: 0, gap: theme.spacing.xs }),
 }));
