@@ -8,7 +8,7 @@ namespace CollectionMaxxing.Api.Tests.Scanning.ShelfRead;
 
 // The server's rows take the place of the phone read they agree with (#835), so Review can light the book on the photo: the box of that read and
 // the snap's segment id. The phone reads below are books the catalogue does not have, so they are never the same release as the server's game
-// and the server's row is added beside them. A fake reader; real Postgres; made-up titles.
+// and the server's row is added beside them. The phones boxes come through a real identify request. A fake reader; real Postgres; made-up titles.
 public class ShelfReadPlaceTests(ApiFixture api) : ShelfReadTest(api)
 {
     private const string Harbor = "Quill Harbor Tides";
@@ -39,29 +39,6 @@ public class ShelfReadPlaceTests(ApiFixture api) : ShelfReadTest(api)
         return (editor, await StartSessionWithoutAutoCommitAsync(editor, library.Id));
     }
 
-    /// <summary>
-    /// Identify as the phone does, then gives each phone row of the session the box its read was sent with. Identify does not store a read's
-    /// box on the row today, so the test writes it as a build that does would (see the PR notes).
-    /// </summary>
-    private async Task<Guid> IdentifyBoxedAsync(HttpClient editor, Guid sessionId, params object[] items)
-    {
-        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", items);
-        await using var context = Db.CreateContext();
-        var rows = await context.ScanCandidates.IgnoreQueryFilters().Where(c => c.SessionId == sessionId).OrderBy(c => c.Seq).ToListAsync();
-        for (var i = 0; i < rows.Count; i++)
-        {
-            var entry = context.Entry(rows[i]);
-            entry.Property(c => c.BoxX).CurrentValue = 0.1 * (i + 1);
-            entry.Property(c => c.BoxY).CurrentValue = 0.1;
-            entry.Property(c => c.BoxW).CurrentValue = 0.05;
-            entry.Property(c => c.BoxH).CurrentValue = 0.8;
-            entry.Property(c => c.BoxSource).CurrentValue = BoxSource.Rect;
-        }
-
-        await context.SaveChangesAsync();
-        return snap;
-    }
-
     private async Task<List<ScanCandidate>> ServerRowsAsync(Guid sessionId)
     {
         await using var context = Db.CreateContext();
@@ -81,7 +58,7 @@ public class ShelfReadPlaceTests(ApiFixture api) : ShelfReadTest(api)
     {
         var (editor, sessionId) = await ArrangeAsync(Harbor);
         using var _ = editor;
-        var snap = await IdentifyBoxedAsync(editor, sessionId, PhoneBook("Quill Harbor", 0.3));
+        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneBook("Quill Harbor", 0.3));
         var phone = await PhoneRowAsync(sessionId, "Quill Harbor");
         Reader.Answer = _ => ScriptedReader.Found(Harbor);
 
@@ -102,7 +79,7 @@ public class ShelfReadPlaceTests(ApiFixture api) : ShelfReadTest(api)
     {
         var (editor, sessionId) = await ArrangeAsync(Harbor, Meadow);
         using var _ = editor;
-        var snap = await IdentifyBoxedAsync(editor, sessionId, PhoneBook("Quill Harbor", 0.3, modelOnly: true));
+        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneBook("Quill Harbor", 0.3, modelOnly: true));
         var phone = await PhoneRowAsync(sessionId, "Quill Harbor");
         Reader.Answer = _ => ScriptedReader.Found(Harbor);
 
@@ -118,7 +95,7 @@ public class ShelfReadPlaceTests(ApiFixture api) : ShelfReadTest(api)
     {
         var (editor, sessionId) = await ArrangeAsync(Harbor, "Quill Harbor Tides Redux");
         using var _ = editor;
-        var snap = await IdentifyBoxedAsync(editor, sessionId, PhoneBook("Quill Harbor", 0.3));
+        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneBook("Quill Harbor", 0.3));
         Reader.Answer = _ => ScriptedReader.Found(Harbor, "Quill Harbor Tides Redux");
 
         await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
@@ -135,8 +112,8 @@ public class ShelfReadPlaceTests(ApiFixture api) : ShelfReadTest(api)
     {
         var (editor, sessionId) = await ArrangeAsync(Harbor, Meadow);
         using var _ = editor;
-        var snap = await IdentifyBoxedAsync(
-            editor, sessionId, PhoneBook("Velvet Orchard Road", 0.1, modelOnly: true), PhoneBook("Tides", 0.5, modelOnly: true));
+        var snap = await IdentifyShelfSnapAsync(
+            editor, sessionId, "shelf_segment", PhoneBook("Velvet Orchard Road", 0.1, modelOnly: true), PhoneBook("Tides", 0.5, modelOnly: true));
         Reader.Answer = _ => ScriptedReader.Found(Harbor, Meadow);
 
         await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
@@ -152,7 +129,7 @@ public class ShelfReadPlaceTests(ApiFixture api) : ShelfReadTest(api)
     {
         var (editor, sessionId) = await ArrangeAsync(Harbor);
         using var _ = editor;
-        var snap = await IdentifyBoxedAsync(editor, sessionId, PhoneBook("Quill Harbor", 0.3));
+        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneBook("Quill Harbor", 0.3));
         Reader.Answer = _ => ScriptedReader.Found(Harbor);
         await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
         var first = await ServerRowsAsync(sessionId);

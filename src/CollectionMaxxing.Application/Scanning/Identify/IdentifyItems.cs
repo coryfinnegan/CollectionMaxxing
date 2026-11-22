@@ -138,6 +138,11 @@ public static class IdentifyItems
                         VisibleText = item.Facts.ShownText,
                         SnapId = snapId,
                         LocalId = item.LocalId,
+                        BoxX = item.Box?.X,
+                        BoxY = item.Box?.Y,
+                        BoxW = item.Box?.Width,
+                        BoxH = item.Box?.Height,
+                        BoxSource = item.Box is null ? null : BoxSource.Ocr,
                         Resolution = CandidateResolution.Pending,
                         Decision = CandidateDecision.Undecided,
                         GuidanceCode = GuidanceCodes.For(input.FellBackFrom, CandidateResolution.Pending, source, null, quotaSpent: false),
@@ -220,6 +225,11 @@ public static class IdentifyItems
                 entry.Property(c => c.ShotKind).CurrentValue = ShotReading.Of(input.ShotKind, 1); // a bound cover is one item
                 entry.Property(c => c.SegmentId).CurrentValue = item.SegmentId;
                 entry.Property(c => c.LocalId).CurrentValue = item.LocalId;
+                entry.Property(c => c.BoxX).CurrentValue = item.Box?.X;
+                entry.Property(c => c.BoxY).CurrentValue = item.Box?.Y;
+                entry.Property(c => c.BoxW).CurrentValue = item.Box?.Width;
+                entry.Property(c => c.BoxH).CurrentValue = item.Box?.Height;
+                entry.Property(c => c.BoxSource).CurrentValue = item.Box is null ? null : BoxSource.Ocr;
                 entry.Property(c => c.SnapId).CurrentValue = snapId;
                 entry.Property(c => c.Resolution).CurrentValue = CandidateResolution.Pending;
                 entry.Property(c => c.InferredJson).CurrentValue = StoredRead.Serialize(item.Facts, item.Profile, item.Unconfirmed);
@@ -320,6 +330,11 @@ public static class IdentifyItems
                     VisibleText = proof.Facts.ShownText,
                     SnapId = snapId,
                     LocalId = proof.LocalId,
+                    BoxX = proof.Box?.X,
+                    BoxY = proof.Box?.Y,
+                    BoxW = proof.Box?.Width,
+                    BoxH = proof.Box?.Height,
+                    BoxSource = proof.Box is null ? null : BoxSource.Ocr,
                     Resolution = CandidateResolution.Pending,
                     Decision = CandidateDecision.Undecided,
                     GuidanceCode = GuidanceCodes.For(input.FellBackFrom, CandidateResolution.Pending, source, null, quotaSpent: false),
