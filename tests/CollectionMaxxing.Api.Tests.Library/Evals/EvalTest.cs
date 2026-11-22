@@ -107,6 +107,6 @@ public abstract class EvalTest : IdentifyTest
     /// <summary>The dated result files (<c>yyyy-MM-dd-&lt;sha&gt;.json</c>) in the results folder.</summary>
     protected IReadOnlyList<string> ResultFiles() =>
         Directory.Exists(Golden.Results)
-            ? Directory.GetFiles(Golden.Results, "????-??-??-*.json").Order().ToList()
+            ? Directory.GetFiles(Golden.Results, "????-??-??-*.json").Where(f => !f.EndsWith("-inputs.json", StringComparison.Ordinal)).Order().ToList()
             : [];
 }
