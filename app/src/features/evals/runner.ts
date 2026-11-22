@@ -277,15 +277,19 @@ export function probeRecord(name: string, ms: number, lines: TextLine[]): OcrPro
   return {
     name,
     ms: Math.min(MAX_PROBE_MS, Math.max(0, Math.round(ms))),
-    lines: lines.slice(0, MAX_PROBE_LINES).map((l) => ({
-      text: l.text.slice(0, MAX_OCR_TEXT),
-      confidence: unit(l.confidence),
-      pass: l.pass ?? 0,
-      x: unit(l.box.x),
-      y: unit(l.box.y),
-      width: unit(l.box.width),
-      height: unit(l.box.height),
-    })),
+    // A line whose box is not a finite number is dropped, and a confidence that is not one is written as 0: NaN would reach the PC as null and refuse the photo.
+    lines: lines
+      .filter((l) => [l.box.x, l.box.y, l.box.width, l.box.height].every(Number.isFinite))
+      .slice(0, MAX_PROBE_LINES)
+      .map((l) => ({
+        text: l.text.slice(0, MAX_OCR_TEXT),
+        confidence: Number.isFinite(l.confidence) ? unit(l.confidence) : 0,
+        pass: l.pass ?? 0,
+        x: unit(l.box.x),
+        y: unit(l.box.y),
+        width: unit(l.box.width),
+        height: unit(l.box.height),
+      })),
   };
 }
 
@@ -741,7 +745,8 @@ export class EvalRunner {
     const lower = defaults ? defaults.supportedRevisions.filter((revision) => revision < defaults.defaultRevision) : [];
     const earlier = lower.length > 0 ? Math.max(...lower) : undefined;
     for (const { name, pinsLanguage, earlierRevision, control } of READER_PROBES) {
-      if (this.stopRequested || this.epoch !== epoch) break;
+      // As before a row: a stop ends the list, a pause holds the next probe until the owner resumes.
+      if (this.stopRequested || !(await this.checkpoint()) || this.epoch !== epoch) break;
       if (earlierRevision && earlier === undefined) continue; // no earlier revision: the revision did not change, only the language can help
       const settings: ReaderSettings = {
         ...(pinsLanguage ? { languages: PROBE_LANGUAGES, automaticallyDetectsLanguage: false } : {}),

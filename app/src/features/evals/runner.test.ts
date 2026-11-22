@@ -917,6 +917,57 @@ describe('the eval runner', () => {
       expect(probeCalls(kit)).toHaveLength(2);
     });
 
+    it('A probe line with a confidence that is not a number is recorded with 0, and the photo is still sent', async () => {
+      const bad: TextLine = { text: 'dune', confidence: Number.NaN, box: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pass: 0 };
+      const worse: TextLine = { text: 'lost', confidence: 0.5, box: { x: Number.NaN, y: 0.1, width: 0.2, height: 0.1 }, pass: 0 };
+      const inf: TextLine = { text: 'far', confidence: Number.POSITIVE_INFINITY, box: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 }, pass: 0 };
+      const kit = probeKit({ text: (_uri, options) => (shapeOf(options) === 'd' ? [bad, worse, inf] : undefined) });
+      await kit.runner.start();
+
+      expect(sentIds()).toEqual(['photo-001']);
+      expect(probesOf('photo-001')![0].lines).toEqual([
+        { text: 'dune', confidence: 0, pass: 0, x: 0.1, y: 0.1, width: 0.2, height: 0.1 },
+        { text: 'far', confidence: 0, pass: 0, x: 0.1, y: 0.1, width: 0.2, height: 0.1 },
+      ]);
+      expect(JSON.stringify(probesOf('photo-001'))).not.toContain('null');
+    });
+
+    it('A probe name longer than 64 characters is cut to 64 and keeps the request\'s revision and languages', async () => {
+      const kit = probeKit();
+      kit.vision.setTextRequest({
+        revision: 3,
+        defaultRevision: 3,
+        supportedRevisions: [1, 2, 3],
+        recognitionLanguages: ['en-US', 'fr-FR'],
+        automaticallyDetectsLanguage: false,
+        supportedRecognitionLanguages: [],
+        osBuild: `Version 27.3 (Build ${'A'.repeat(60)})`,
+      });
+      await kit.runner.start();
+
+      const control = probesOf('photo-001')![0].name;
+      expect(control).toHaveLength(64);
+      expect(control.startsWith('d r3/3 s123 l=en-US+1 a0 2576x1932 AAAA')).toBe(true);
+    });
+
+    it('The owner\'s pause between two probes holds the next probe until they resume', async () => {
+      const kit: ReturnType<typeof probeKit> = probeKit({
+        text: (_uri, options) => {
+          if (shapeOf(options) === 'd') kit.runner.pause();
+          return undefined;
+        },
+      });
+      const finished = kit.runner.start();
+      await waitFor(() => kit.runner.getState().phase === 'paused');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(probeCalls(kit).map((c) => shapeOf(c.options))).toEqual(['d']);
+      expect(sentIds()).toEqual([]);
+
+      kit.runner.resume();
+      await finished;
+      expect(probesOf('photo-001')!.map((p) => p.name.split(' ')[0])).toEqual(NAMES);
+    });
+
     it('counts no probe in any row\'s timing', async () => {
       const kit = probeKit({ photos: 2 });
       await kit.runner.start();
