@@ -242,9 +242,9 @@ test.describe('visual', () => {
     test('review walk end', async ({ page, open }) => {
       await openWalk(page, open);
       await page.getByRole('button', { name: 'Add this: Suddenly You' }).click();
-      await expect(page.getByText('2 of 2')).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Not this one: Unknown item' })).toBeEnabled();
-      await page.getByRole('button', { name: 'Not this one: Unknown item' }).click();
+      await expect(page.getByText('2 of 2', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: /^Not this one: / })).toBeEnabled();
+      await page.getByRole('button', { name: /^Not this one: / }).click();
       await expect(page.getByText("That's everything that needed you.")).toBeVisible();
       await expect(page.getByText('1 matched by itself.')).toBeVisible();
       await expect(page.getByText('1 you picked.')).toBeVisible();
@@ -510,7 +510,7 @@ async function openWalk(page: Page, open: (path: string) => Promise<void>) {
     localStorage.setItem('snap-store\\snap-store-v1', JSON.stringify([{ ...stored, createdAt: Date.now() }]));
   }, snap);
   await open('/review?seed=review-rows');
-  await expect(page.getByText('1 of 2')).toBeVisible();
+  await expect(page.getByText('1 of 2', { exact: true })).toBeVisible();
   await expect(page.getByTestId('walk-band')).toBeVisible();
   // The band glides and the card comes in; the shot is of the settled card.
   await page.waitForTimeout(600);

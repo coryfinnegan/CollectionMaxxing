@@ -11,6 +11,7 @@ import type { Rect } from '@/native/cm-vision';
 import type { Placed, Size } from '@/features/scan/detail/overlay';
 import { useReduceMotion } from '@/lib/a11y/useReduceMotion';
 import { Cover, Text } from '@/ui';
+import { darkColors } from '@/theme/tokens';
 import { motionMs } from '@/ui/motion';
 import { bandView, stripView } from './placement';
 
@@ -87,14 +88,22 @@ export function ShelfBand({
   return (
     <Pressable testID="walk-band" accessibilityRole="image" accessibilityLabel={label} accessibilityHint={onOpen ? 'Opens the whole photo' : undefined} onPress={onOpen} style={styles.band}>
       <Animated.View style={[styles.layer, imageStyle]}>
-        <Image source={{ uri: still.uri }} resizeMode="stretch" style={styles.fill} accessibilityIgnoresInvertColors />
+        <Image source={{ uri: still.uri }} resizeMode="stretch" style={styles.fill} accessible={false} accessibilityIgnoresInvertColors />
       </Animated.View>
       {view.box ? (
         <>
-          <Animated.View pointerEvents="none" style={[styles.scrim, styles.wide, above]} />
-          <Animated.View pointerEvents="none" style={[styles.scrim, styles.wide, styles.toBottom, below]} />
-          <Animated.View pointerEvents="none" style={[styles.scrim, styles.fromLeft, leftOf]} />
-          <Animated.View pointerEvents="none" style={[styles.scrim, styles.toRight, rightOf]} />
+          <Animated.View pointerEvents="none" style={[styles.scrim, styles.wide, above]}>
+            <View style={styles.deeper} />
+          </Animated.View>
+          <Animated.View pointerEvents="none" style={[styles.scrim, styles.wide, styles.toBottom, below]}>
+            <View style={styles.deeper} />
+          </Animated.View>
+          <Animated.View pointerEvents="none" style={[styles.scrim, styles.fromLeft, leftOf]}>
+            <View style={styles.deeper} />
+          </Animated.View>
+          <Animated.View pointerEvents="none" style={[styles.scrim, styles.toRight, rightOf]}>
+            <View style={styles.deeper} />
+          </Animated.View>
           <Animated.View testID="walk-box" pointerEvents="none" style={[styles.outline, frame]}>
             <View style={styles.accentBox} />
           </Animated.View>
@@ -111,7 +120,7 @@ export function SpineStrip({ still, box, max, label = 'Your photo of this spine'
   return (
     <View testID="spine-strip" accessible accessibilityRole="image" accessibilityLabel={label} style={styles.strip(view.outer)}>
       <View testID={view.turned ? 'spine-strip-turned' : 'spine-strip-flat'} style={styles.clip(view.clip, view.turned)}>
-        <Image source={{ uri: still.uri }} resizeMode="stretch" style={styles.placed(view.image)} accessibilityIgnoresInvertColors />
+        <Image source={{ uri: still.uri }} resizeMode="stretch" style={styles.placed(view.image)} accessible={false} accessibilityIgnoresInvertColors />
       </View>
     </View>
   );
@@ -134,12 +143,16 @@ const styles = StyleSheet.create((theme) => ({
   layer: { position: 'absolute' },
   fill: { width: '100%', height: '100%' },
   scrim: { position: 'absolute', backgroundColor: theme.fixed.scrim },
+  // A second scrim inside the first: one alone barely dims dark spines, and the lit one must be the only bright thing in the band.
+  deeper: { flex: 1, backgroundColor: theme.fixed.scrim },
   wide: { left: 0, right: 0, top: 0 },
   toBottom: { bottom: 0 },
   fromLeft: { left: 0 },
   toRight: { right: 0 },
   outline: { position: 'absolute', borderWidth: 1, borderColor: theme.fixed.black, borderRadius: theme.radius.sm + 1 },
-  accentBox: { flex: 1, borderWidth: 3, borderColor: theme.colors.accent, borderRadius: theme.radius.sm },
+  // The photo is a dark surface in either scheme (like the camera), so the box takes the accent as it is drawn on dark: bright
+  // amber. The light scheme's accent is a deep brown that disappears on a shelf.
+  accentBox: { flex: 1, borderWidth: 3, borderColor: darkColors.accent, borderRadius: theme.radius.sm },
   strip: (outer: Size) => ({
     width: outer.width,
     height: outer.height,

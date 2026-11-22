@@ -9,7 +9,7 @@ import { Text, usePressFeedback } from '@/ui';
 export function TextAction({ label, accessibilityLabel, onPress, disabled }: { label: string; accessibilityLabel?: string; onPress(): void; disabled?: boolean }) {
   const press = usePressFeedback('tap');
   return (
-    <Animated.View style={press.style}>
+    <Animated.View style={[styles.wrap, press.style]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel ?? label}
@@ -32,5 +32,6 @@ export function TextAction({ label, accessibilityLabel, onPress, disabled }: { l
 }
 
 const styles = StyleSheet.create((theme) => ({
+  wrap: { alignSelf: 'flex-start' },
   target: { minHeight: 44, minWidth: 44, paddingHorizontal: theme.spacing.sm, alignItems: 'center', justifyContent: 'center' },
 }));

@@ -142,7 +142,8 @@ export function WalkCard({
   const titleRef = useRef<View>(null);
   useEffect(() => {
     const target = matchRef.current ?? titleRef.current;
-    if (target) AccessibilityInfo.sendAccessibilityEvent(target, 'focus');
+    // react-native-web has no accessibility events; a screen reader there follows the page as it is.
+    if (target && typeof AccessibilityInfo.sendAccessibilityEvent === 'function') AccessibilityInfo.sendAccessibilityEvent(target, 'focus');
   }, [showing.c.id]);
 
   // Which match the reel shows, per card.
