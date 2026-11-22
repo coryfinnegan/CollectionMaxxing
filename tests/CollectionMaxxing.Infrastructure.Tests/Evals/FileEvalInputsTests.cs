@@ -150,16 +150,54 @@ public sealed class FileEvalInputsTests : IDisposable
         File.Exists(old).ShouldBeFalse();
     }
 
+    private FileEvalInputs InputsWith(int keep = 20, Action<FileInfo>? deleteOld = null) =>
+        new(Options.Create(new EvalsOptions { Enabled = true, ResultsPath = _golden.Results, KeepDatedInputs = keep }), NullLogger<FileEvalInputs>.Instance, deleteOld: deleteOld);
+
     [Fact]
-    public async Task A_reground_writes_no_dated_copy()
+    public async Task The_copy_just_written_is_never_pruned_even_when_older_copies_carry_later_write_times()
     {
-        await FinishRunAsync("run1");
-        var before = Names("*");
+        var old = Path.Combine(_golden.Results, "2026-01-01-old-inputs.json");
+        await File.WriteAllTextAsync(old, "{}");
+        File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddYears(5));
 
-        Inputs().Load().ShouldNotBeNull(); // a re-ground only reads the kept readings
-        Inputs().TakeRegroundRequest().ShouldBeFalse();
+        await InputsWith(keep: 1).SaveAsync(Kept(), CancellationToken.None);
 
-        Names("*").ShouldBe(before);
+        Names("2026-10-31-run1-inputs.json").Count.ShouldBe(1);
+        File.Exists(old).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_failure_writing_the_dated_copy_does_not_fail_the_save()
+    {
+        Directory.CreateDirectory(Path.Combine(_golden.Results, "2026-10-31-run1-inputs.json")); // the dated copy cannot be written over a folder
+
+        await Inputs().SaveAsync(Kept(), CancellationToken.None);
+
+        Inputs().Load()!.RunId.ShouldBe("run1");
+    }
+
+    [Fact]
+    public async Task A_failure_deleting_an_old_copy_does_not_fail_the_save()
+    {
+        var old = Path.Combine(_golden.Results, "2026-01-01-old-inputs.json");
+        await File.WriteAllTextAsync(old, "{}");
+        File.SetLastWriteTimeUtc(old, At.UtcDateTime.AddDays(-9));
+
+        await InputsWith(keep: 1, deleteOld: _ => throw new InvalidOperationException("boom")).SaveAsync(Kept(), CancellationToken.None);
+
+        Inputs().Load()!.RunId.ShouldBe("run1");
+        File.Exists(Path.Combine(_golden.Results, "2026-10-31-run1-inputs.json")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task The_latest_readings_are_written_before_the_dated_copy()
+    {
+        Directory.CreateDirectory(Path.Combine(_golden.Results, "2026-10-31-run1-inputs.json"));
+
+        await Inputs().SaveAsync(Kept(), CancellationToken.None);
+
+        // the dated copy failed, yet latest-inputs.json is whole: it was written first
+        Inputs().Load().ShouldNotBeNull().Photos.ShouldHaveSingleItem();
     }
 
     [Fact]

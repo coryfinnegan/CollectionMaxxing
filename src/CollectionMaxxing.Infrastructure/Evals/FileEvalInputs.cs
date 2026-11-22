@@ -13,7 +13,7 @@ namespace CollectionMaxxing.Infrastructure.Evals;
 /// only, never served, never in the repo (<c>.gitignore</c> covers the folder). The file is written whole to a temp name and moved into place, so a stop
 /// half way leaves the previous readings; a newer run replaces them. Only someone who can write the folder can ask for a re-ground.
 /// </summary>
-public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileEvalInputs> logger, Action<string>? delete = null) : IEvalInputs
+public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileEvalInputs> logger, Action<string>? delete = null, Action<FileInfo>? deleteOld = null) : IEvalInputs
 {
     private const string InputsFile = "latest-inputs.json";
     private const string DatedSuffix = "-inputs.json";
@@ -28,6 +28,7 @@ public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileE
     };
 
     private readonly Action<string> _delete = delete ?? File.Delete;
+    private readonly Action<FileInfo> _deleteOld = deleteOld ?? (file => file.Delete());
     private int _deleteFailureLogged;
 
     public bool IsConfigured => Folder() is not null;
@@ -66,10 +67,11 @@ public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileE
     {
         try
         {
-            await WriteWholeAsync(Path.Combine(folder, DatedStem(folder, inputs) + DatedSuffix), text, cancellationToken);
-            Prune(folder);
+            var path = Path.Combine(folder, DatedStem(folder, inputs) + DatedSuffix);
+            await WriteWholeAsync(path, text, cancellationToken);
+            Prune(folder, path);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             logger.LogWarning("The dated copy of the phone's readings could not be kept ({Failure}).", exception.GetType().Name);
         }
@@ -110,22 +112,23 @@ public sealed class FileEvalInputs(IOptions<EvalsOptions> options, ILogger<FileE
         && name[10] == '-'
         && DateOnly.TryParseExact(name[..10], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
 
-    private void Prune(string folder)
+    /// <summary>Keeps the copy just written plus the newest others, up to the setting. The copy just written is never a candidate, whatever any write time says.</summary>
+    private void Prune(string folder, string justWritten)
     {
-        var keep = Math.Max(1, options.Value.KeepDatedInputs);
+        var keepOthers = Math.Max(1, options.Value.KeepDatedInputs) - 1;
         var old = new DirectoryInfo(folder).EnumerateFiles("*" + DatedSuffix)
-            .Where(f => IsDatedInputs(f.Name))
+            .Where(f => IsDatedInputs(f.Name) && !string.Equals(f.FullName, Path.GetFullPath(justWritten), StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(f => f.LastWriteTimeUtc)
             .ThenByDescending(f => f.Name, StringComparer.Ordinal)
-            .Skip(keep)
+            .Skip(keepOthers)
             .ToList();
         foreach (var file in old)
         {
             try
             {
-                file.Delete();
+                _deleteOld(file);
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 logger.LogWarning("An old dated copy of the phone's readings could not be deleted ({Failure}).", exception.GetType().Name);
             }
