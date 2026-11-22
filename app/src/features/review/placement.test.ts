@@ -151,7 +151,7 @@ describe('the band', () => {
       outlined(view);
     });
 
-    it('shows the whole photo filling the band while the still has no size yet', () => {
+    it('shows the whole photo filling the band while the still has no usable size', () => {
       for (const size of [{ width: 0, height: 0 }, { width: Number.NaN, height: 100 }, { width: 100, height: Number.POSITIVE_INFINITY }]) {
         const view = bandView(size, SPINE, band);
         finite(view);

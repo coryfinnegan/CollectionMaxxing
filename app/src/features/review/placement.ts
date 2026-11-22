@@ -110,7 +110,7 @@ export interface BandView {
  * from the band's edges, so all four edges always show. With no box, the whole photo, contained.
  */
 export function bandView(still: Size, box: Rect | undefined, band: Size): BandView {
-  // A still whose size is not known yet (0, or not a finite number while the image loads) is the whole photo, filling the band: any
+  // A still whose size is 0 or not a finite number (while the image loads) is the whole photo, filling the band: any
   // sum with it would be NaN or infinite.
   if (!usable(still) || !usable(band)) return { image: { left: 0, top: 0, width: usable(band) ? band.width : 0, height: usable(band) ? band.height : 0 } };
   if (!box || ![box.x, box.y, box.width, box.height].every(Number.isFinite)) return { image: fitImage(band, still) };
