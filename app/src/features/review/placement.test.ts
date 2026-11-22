@@ -116,6 +116,43 @@ describe('the band', () => {
     expect(cover.box!.width).toBeLessThanOrEqual(band.width * 0.6 + 0.01);
   });
 
+  it('A flat stack or a cover is not zoomed past 60% of the band, even where the photo is narrower than the band', () => {
+    // A tall, narrow photo in a narrow band: the 48 pt floor alone would make the box 80% of the band.
+    const narrow = { width: 60, height: BAND_HEIGHT };
+    const view = bandView({ width: 100, height: 1000 }, { x: 0.45, y: 0.5, width: 0.1, height: 0.05 }, narrow);
+    expect(view.box!.width).toBeLessThanOrEqual(narrow.width * 0.6 + 0.01);
+  });
+
+  describe('a box or a still with no usable size', () => {
+    const finite = (view: ReturnType<typeof bandView>) => {
+      for (const n of [view.image.left, view.image.top, view.image.width, view.image.height, ...(view.box ? [view.box.left, view.box.top, view.box.width, view.box.height] : [])]) {
+        expect(Number.isFinite(n)).toBe(true);
+      }
+    };
+
+    it('floors a box of no width at 1 px, so the zoom stays finite', () => {
+      const view = bandView(STILL, { x: 0.5, y: 0.2, width: 0, height: 0.5 }, band);
+      finite(view);
+      expect(view.image.width).toBeLessThanOrEqual(STILL.width * 60);
+      outlined(view);
+    });
+
+    it('floors a box of no height at 1 px', () => {
+      const view = bandView(STILL, { x: 0.3, y: 0.5, width: 0.1, height: 0 }, band);
+      finite(view);
+      outlined(view);
+    });
+
+    it('shows the whole photo filling the band while the still has no usable size', () => {
+      for (const size of [{ width: 0, height: 0 }, { width: Number.NaN, height: 100 }, { width: 100, height: Number.POSITIVE_INFINITY }]) {
+        const view = bandView(size, SPINE, band);
+        finite(view);
+        expect(view.box).toBeUndefined();
+        expect(view.image).toEqual({ left: 0, top: 0, width: band.width, height: band.height });
+      }
+    });
+  });
+
   it('outlines a box as wide as the photo inside the band', () => {
     outlined(bandView(STILL, { x: 0, y: 0.4, width: 1, height: 0.1 }, band));
   });

@@ -76,6 +76,7 @@ export function isTall(box: Rect, still: Size): boolean {
   return box.height * still.height > 2.5 * box.width * still.width;
 }
 
+const usable = (size: Size): boolean => Number.isFinite(size.width) && Number.isFinite(size.height) && size.width > 0 && size.height > 0;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 const round = (n: number) => Math.round(n * 100) / 100;
 
@@ -105,8 +106,13 @@ export interface BandView {
  * from the band's edges, so all four edges always show. With no box, the whole photo, contained.
  */
 export function bandView(still: Size, box: Rect | undefined, band: Size): BandView {
-  if (!box || band.width <= 0 || band.height <= 0 || still.width <= 0 || still.height <= 0) return { image: fitImage(band, still) };
-  const boxPx = Math.max(1e-9, box.width * still.width);
+  // A still whose size is 0 or not a finite number (while the image loads) is the whole photo, filling the band: any
+  // sum with it would be NaN or infinite.
+  if (!usable(still) || !usable(band)) return { image: { left: 0, top: 0, width: usable(band) ? band.width : 0, height: usable(band) ? band.height : 0 } };
+  if (!box || ![box.x, box.y, box.width, box.height].every(Number.isFinite)) return { image: fitImage(band, still) };
+  // A box of no width or height (a line the model drew) counts as 1 px, so the zoom never runs away.
+  box = { ...box, width: Math.max(box.width, 1 / still.width), height: Math.max(box.height, 1 / still.height) };
+  const boxPx = box.width * still.width;
   const zoomIn = Math.max(MIN_BOX / boxPx, (band.width * MIN_SHARE) / boxPx);
   const cover = Math.max(band.width / still.width, band.height / still.height);
   const scale = Math.max(cover, Math.min(zoomIn, (band.width * MAX_SHARE) / boxPx));
