@@ -2,6 +2,7 @@
 // waiting to be sent and the receipt lines all go, and so does every picture file still registered outside the snap store.
 import { discardAllPictures, discardPicturesOfSnaps } from '../pictureFiles';
 import { getPipelineStore } from './pipelineStore';
+import { recheckShelfUploads, stopShelfUploads } from './shelfUpgrade';
 import { getSnapStore } from './snapStore';
 
 /**
@@ -10,6 +11,7 @@ import { getSnapStore } from './snapStore';
  */
 export async function clearPipelineData(libraryId?: string): Promise<void> {
   if (libraryId === undefined) {
+    stopShelfUploads(getPipelineStore()); // sign-out or unpair: a read in flight is aborted, nothing waits
     getPipelineStore().getState().clear();
     await getSnapStore().clear();
     await discardAllPictures(); // the capture, scaled snaps, halves, crops and downloads that are still anywhere outside the store
@@ -20,6 +22,7 @@ export async function clearPipelineData(libraryId?: string): Promise<void> {
     .snaps.filter((s) => s.libraryId === libraryId)
     .map((s) => s.snapId);
   getPipelineStore().getState().clearLibrary(libraryId);
+  recheckShelfUploads(getPipelineStore(), libraryId); // the snaps are gone: a read for them is aborted
   await Promise.all(doomed.map((snapId) => getSnapStore().forget(snapId)));
   await discardPicturesOfSnaps(doomed);
 }
