@@ -1,8 +1,11 @@
 using System.Net;
 using System.Text.Json;
+using CollectionMaxxing.Api.Tests.Items;
 using CollectionMaxxing.Api.Tests.Support;
+using CollectionMaxxing.Domain.Catalog;
 using CollectionMaxxing.Domain.Libraries;
 using CollectionMaxxing.Domain.Scanning;
+using CollectionMaxxing.TestSupport;
 using Microsoft.EntityFrameworkCore;
 
 namespace CollectionMaxxing.Api.Tests.Scanning.Identify;
@@ -93,5 +96,42 @@ public class IdentifyBoxTests(ApiFixture api) : IdentifyTest(api)
         (await IdentifyAsync(editor, sessionId, null, read)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         (await StoredAsync(sessionId)).Single().BoxX.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_bound_covers_box_is_stored()
+    {
+        var library = await CreateLibraryAsync();
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id);
+        var row = (await IdentifyOkAsync(editor, sessionId, Read(title: "A Game That Is Nowhere In The Catalogue")))[0];
+        var bound = Body(Guid.NewGuid(), [WithBox(Read(title: "Star Fox 64", kind: "game"), 0.4)]);
+        bound["kind"] = "cover";
+        bound["shotKind"] = "single_cover";
+        bound["candidateId"] = row.GetProperty("id").GetGuid();
+
+        (await editor.PostAsync(IdentifyUrl(sessionId), Json(bound))).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var stored = (await StoredAsync(sessionId)).Single();
+        (stored.BoxX, stored.BoxY, stored.BoxW, stored.BoxH, stored.BoxSource).ShouldBe((0.4, 0.1, 0.05, 0.8, BoxSource.Ocr));
+    }
+
+    [Fact]
+    public async Task An_edition_proof_reads_box_is_stored()
+    {
+        var library = await CreateLibraryAsync();
+        var releaseId = await ItemSeed.AddReleaseAsync(Db, "Dune", WorkKind.Book, ReleaseFormat.Paperback, 1965);
+        var itemId = await TestData.CreateItemAsync(Db, library, releaseId);
+        using var editor = As(library, LibraryRole.Editor);
+        var sessionId = await StartSessionAsync(editor, library.Id);
+        var body = Body(Guid.NewGuid(), [WithBox(Read(title: "Dune", kind: "book", format: "paperback", year: 1965), 0.4)]);
+        body["kind"] = "edition_proof";
+        body["shotKind"] = "single_cover";
+        body["itemId"] = itemId;
+
+        (await editor.PostAsync(IdentifyUrl(sessionId), Json(body))).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var stored = (await StoredAsync(sessionId)).Single();
+        (stored.BoxX, stored.BoxY, stored.BoxW, stored.BoxH, stored.BoxSource).ShouldBe((0.4, 0.1, 0.05, 0.8, BoxSource.Ocr));
     }
 }

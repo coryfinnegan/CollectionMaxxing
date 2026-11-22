@@ -106,52 +106,78 @@ public static class PcShelfUpgrade
     /// <summary>The fewest words a server read and a phone read must share for the phone's box to be the server read's place: one shared word is a coincidence.</summary>
     public const int MinPlaceWords = 2;
 
+    /// <summary>How far apart the shares of a donor's two best server reads must be for it to pick one: closer than this and it lends to neither.</summary>
+    public const double PlaceMargin = 0.1;
+
     /// <summary>
-    /// Which of the phone's reads sits where the server's read is, so the app can light it on the photo (#835). <paramref name="phone"/> are
-    /// the phone's reads of the same snap that have a box, in order (kept, skipped or left out alike: a fragment of the same spine is a
-    /// good place). One agrees when <see cref="SameItem"/> says so and they share at least <see cref="MinPlaceWords"/> words (or their best
-    /// releases' titles are the same, of at least that many words); a server read of fewer than that many words gets none. The highest
-    /// share of the words they have in common (twice the shared count over both word counts) wins; a tie goes to the earlier read. Indexes in <paramref name="taken"/> are not offered: a box
-    /// is used once. Returns the index in <paramref name="phone"/>, or null (a wrong place is worse than none). Pure; it never changes
-    /// which reads stand.
+    /// How well a phone read (<paramref name="donor"/>) names the same book as a server read, 0 to 1, or null when it is not a place for
+    /// it: <see cref="SameItem"/> must say so and they must share at least <see cref="MinPlaceWords"/> words (or their best releases'
+    /// titles are the same, of at least that many words; a share of 1). Otherwise the share of the words they have in common: twice the
+    /// shared count over both word counts, so a full title beats a fragment. A one-word server title can never pass.
     /// </summary>
-    public static int? PlaceOf(ShelfRead server, IReadOnlyList<ShelfRead> phone, IReadOnlySet<int>? taken = null)
+    public static double? PlaceShare(ShelfRead server, ShelfRead donor)
     {
-        var serverWords = DistinctWords(server.ReadTitle);
-        serverWords.UnionWith(PrintSupport.TitleWords(server.BestTitle));
-        if (serverWords.Count < MinPlaceWords)
+        if (!SameItem(server, donor))
         {
             return null;
         }
 
-        int? best = null;
-        var bestShare = 0.0;
-        for (var i = 0; i < phone.Count; i++)
+        var serverWords = DistinctWords(server.ReadTitle);
+        serverWords.UnionWith(PrintSupport.TitleWords(server.BestTitle));
+        var words = DistinctWords(donor.ReadTitle);
+        var shared = words.Count(serverWords.Contains);
+        var sameTitle = server.BestTitle is { } a && donor.BestTitle is { } b
+            && TitleNormalizer.Normalize(a) is { Length: > 0 } normal && normal == TitleNormalizer.Normalize(b)
+            && PrintSupport.TitleWords(a).Distinct().Count() >= MinPlaceWords;
+        if (shared < MinPlaceWords && !sameTitle)
         {
-            if ((taken is not null && taken.Contains(i)) || !SameItem(server, phone[i]))
+            return null;
+        }
+
+        return sameTitle ? 1.0 : 2.0 * shared / (words.Count + serverWords.Count);
+    }
+
+    /// <summary>
+    /// Which donor (a phone read with a box that will not keep showing: <paramref name="donors"/>) sits where each server read is, so the
+    /// app can light it on the photo (#835). Returns, for each server read, the index of its donor or null. The best pairs go first across
+    /// all server reads and donors (highest <see cref="PlaceShare"/>; a tie goes to the earlier donor, then the earlier server read), and
+    /// each donor and each server read is used once. A donor whose two best server reads are within <see cref="PlaceMargin"/> of each
+    /// other lends to neither: it cannot tell which of them it was (a wrong place is worse than none). Pure; it never changes which reads stand.
+    /// </summary>
+    public static IReadOnlyList<int?> PlacesOf(IReadOnlyList<ShelfRead> server, IReadOnlyList<ShelfRead> donors)
+    {
+        var pairs = new List<(double Share, int Donor, int Server)>();
+        for (var d = 0; d < donors.Count; d++)
+        {
+            var own = new List<(double Share, int Server)>();
+            for (var s = 0; s < server.Count; s++)
+            {
+                if (PlaceShare(server[s], donors[d]) is { } share)
+                {
+                    own.Add((share, s));
+                }
+            }
+
+            var best = own.OrderByDescending(pair => pair.Share).ToList();
+            if (best.Count >= 2 && best[0].Share - best[1].Share < PlaceMargin)
             {
                 continue;
             }
 
-            var words = DistinctWords(phone[i].ReadTitle);
-            var shared = words.Count(serverWords.Contains);
-            var sameTitle = server.BestTitle is { } a && phone[i].BestTitle is { } b
-                && TitleNormalizer.Normalize(a) is { Length: > 0 } normal && normal == TitleNormalizer.Normalize(b)
-                && PrintSupport.TitleWords(a).Distinct().Count() >= MinPlaceWords;
-            if (shared < MinPlaceWords && !sameTitle)
-            {
-                continue;
-            }
+            pairs.AddRange(best.Select(pair => (pair.Share, d, pair.Server)));
+        }
 
-            var share = sameTitle ? 1.0 : 2.0 * shared / (words.Count + serverWords.Count);
-            if (best is null || share > bestShare)
+        var places = new int?[server.Count];
+        var used = new HashSet<int>();
+        foreach (var (_, donor, serverIndex) in pairs.OrderByDescending(pair => pair.Share).ThenBy(pair => pair.Donor).ThenBy(pair => pair.Server))
+        {
+            if (places[serverIndex] is null && used.Add(donor))
             {
-                best = i;
-                bestShare = share;
+                places[serverIndex] = donor;
             }
         }
 
-        return best;
+        return places;
     }
 
     private static HashSet<string> DistinctWords(string? title) => [.. PrintSupport.TitleWords(title)];

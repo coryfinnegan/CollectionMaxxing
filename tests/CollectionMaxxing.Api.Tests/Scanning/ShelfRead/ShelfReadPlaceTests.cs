@@ -15,9 +15,9 @@ public class ShelfReadPlaceTests(ApiFixture api) : ShelfReadTest(api)
     private const string Meadow = "Copper Meadow Song";
     private const string Segment = "seg-one";
 
-    private static Dictionary<string, object?> PhoneBook(string title, double x, bool modelOnly = false)
+    private static Dictionary<string, object?> PhoneBook(string title, double x, bool modelOnly = false, string segment = Segment)
     {
-        var read = Read(title: title, kind: "book", format: "paperback", year: 1996, segmentId: Segment);
+        var read = Read(title: title, kind: "book", format: "paperback", year: 1996, segmentId: segment);
         read["box"] = new { x, y = 0.1, width = 0.05, height = 0.8 };
         if (modelOnly)
         {
@@ -138,5 +138,74 @@ public class ShelfReadPlaceTests(ApiFixture api) : ShelfReadTest(api)
 
         var second = await ServerRowsAsync(sessionId);
         second.Select(r => (r.Id, r.BoxX, r.BoxY, r.BoxW, r.BoxH, r.SegmentId)).ShouldBe(first.Select(r => (r.Id, r.BoxX, r.BoxY, r.BoxW, r.BoxH, r.SegmentId)));
+    }
+
+    [Fact]
+    public async Task A_phone_row_that_stands_keeps_its_box_and_no_server_row_takes_it()
+    {
+        var (editor, sessionId) = await ArrangeAsync(Harbor, "Quill Harbor Tides Redux");
+        using var _ = editor;
+        var read = Read(title: Harbor, kind: "game", format: "game_cartridge", year: 1996, segmentId: Segment);
+        read["box"] = new { x = 0.3, y = 0.1, width = 0.05, height = 0.8 };
+        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", read);
+        Reader.Answer = _ => ScriptedReader.Found(Harbor, "Quill Harbor Tides Redux");
+
+        await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
+
+        var rows = await ServerRowsAsync(sessionId);
+        rows.Count.ShouldBe(1, "the phone's row is the row for the first title");
+        rows[0].BoxX.ShouldBeNull("the phone row still shows at that place");
+        rows[0].SegmentId.ShouldBe(Segment);
+        (await PhoneRowAsync(sessionId, Harbor)).BoxX.ShouldBe(0.3);
+    }
+
+    [Fact]
+    public async Task A_phone_row_the_person_decided_does_not_lend_its_box()
+    {
+        var (editor, sessionId) = await ArrangeAsync(Harbor);
+        using var _ = editor;
+        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneBook("Quill Harbor", 0.3, modelOnly: true));
+        var phone = await PhoneRowAsync(sessionId, "Quill Harbor");
+        (await DecideAsync(editor, sessionId, phone.Id, new { decision = "rejected" })).StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        Reader.Answer = _ => ScriptedReader.Found(Harbor);
+
+        await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
+
+        (await ServerRowsAsync(sessionId)).Single().BoxX.ShouldBeNull("the person's row keeps showing there");
+    }
+
+    [Fact]
+    public async Task No_box_is_lent_when_the_server_read_names_no_release()
+    {
+        var (editor, sessionId) = await ArrangeAsync(Harbor);
+        using var _ = editor;
+        var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", PhoneBook("Quill Harbor", 0.3, modelOnly: true));
+        Reader.Answer = _ => ScriptedReader.Found("Zorblax Quill Harbor Saga"); // not in the catalogue: the phone's rows all stand
+
+        await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
+
+        var rows = await ServerRowsAsync(sessionId);
+        rows.Single().BoxX.ShouldBeNull();
+        rows.Single().SegmentId.ShouldBe(Segment);
+    }
+
+    [Fact]
+    public async Task A_server_row_with_a_donor_carries_the_donors_segment_id()
+    {
+        var (editor, sessionId) = await ArrangeAsync(Harbor, Meadow);
+        using var _ = editor;
+        var snap = await IdentifyShelfSnapAsync(
+            editor, sessionId, "shelf_segment",
+            PhoneBook("Velvet Orchard Road", 0.1, modelOnly: true, segment: "seg-first"),
+            PhoneBook("Quill Harbor", 0.5, modelOnly: true, segment: "seg-donor"));
+        Reader.Answer = _ => ScriptedReader.Found(Harbor, Meadow);
+
+        await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
+
+        var rows = await ServerRowsAsync(sessionId);
+        rows[0].SegmentId.ShouldBe("seg-donor");
+        rows[0].BoxX.ShouldBe(0.5);
+        rows[1].SegmentId.ShouldBe("seg-first", "without a donor, the photo's first segment id");
+        rows[1].BoxX.ShouldBeNull();
     }
 }
