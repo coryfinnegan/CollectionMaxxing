@@ -15,6 +15,7 @@ namespace CollectionMaxxing.Api.Tests.Scanning.ShelfRead;
 public class ShelfReadAlternativeTitlesTests(ApiFixture api) : ShelfReadTest(api)
 {
     private const string BoxTitle = "HIGHLANDER THE FINAL DIMENSION";
+    private const string SecondTitle = "HIGHLANDER THE SORCERER RETURNS";
 
     private sealed class FilmCatalogue : ICatalogProvider, ISearchableCatalogProvider, IAlternativeTitleProvider
     {
@@ -28,6 +29,12 @@ public class ShelfReadAlternativeTitlesTests(ApiFixture api) : ShelfReadTest(api
         /// <summary>When set, the films found score too low to be offered, so the read goes on to its trimmed spans.</summary>
         public bool Weak { get; set; }
 
+        /// <summary>Completes when an alternative-titles call has started (and is waiting on <see cref="Hold"/>).</summary>
+        public TaskCompletionSource AlternativeStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Completes when the catalogue has been searched for both reads as they were read (a trimmed retry of one does not count).</summary>
+        public TaskCompletionSource TwoReadsSearched { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public string Name => "films";
 
         public bool Supports(WorkKind kind) => kind is WorkKind.Film or WorkKind.Tv;
@@ -39,6 +46,11 @@ public class ShelfReadAlternativeTitlesTests(ApiFixture api) : ShelfReadTest(api
         public Task<IReadOnlyList<ProviderRelease>> SearchAsync(CatalogQuery query, CancellationToken ct)
         {
             Searched.Enqueue(query.Title);
+            if (Searched.Contains(BoxTitle) && Searched.Contains(SecondTitle))
+            {
+                TwoReadsSearched.TrySetResult();
+            }
+
             if (Weak)
             {
                 return Task.FromResult<IReadOnlyList<ProviderRelease>>(
@@ -60,6 +72,7 @@ public class ShelfReadAlternativeTitlesTests(ApiFixture api) : ShelfReadTest(api
         public async Task<IReadOnlyList<string>?> AlternativeTitlesAsync(ProviderRelease release, CancellationToken ct)
         {
             AlternativeAsked.Enqueue(release.ExternalId);
+            AlternativeStarted.TrySetResult();
             if (Hold is { } hold)
             {
                 await hold.Task.WaitAsync(ct);
@@ -133,20 +146,24 @@ public class ShelfReadAlternativeTitlesTests(ApiFixture api) : ShelfReadTest(api
         var films = UseFilms();
         films.Hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Options.Parallelism = 1;
+
+        // The read's own time budget (2 s) is a real clock: on a busy machine it ran out while the call was held, the read went on to its
+        // trimmed spans, and those searches looked like the second read's. This test is about places, not the budget, so it never runs out.
+        Options.ResolveBudget = TimeSpan.FromMinutes(5);
         var (editor, sessionId, snap) = await ArrangeAsync();
         using var _ = editor;
-        Reader.Answer = _ => FilmShelf(BoxTitle, "HIGHLANDER THE SORCERER RETURNS");
+        Reader.Answer = _ => FilmShelf(BoxTitle, SecondTitle);
 
         var reading = ReadShelfAsync(editor, sessionId, snap);
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (films.Searched.Select(t => t).Distinct().Count() < 2 && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(50);
-        }
+
+        // Wait on the two events the claim is about, not on a clock: a read's alternative-title call has started and is held, and the
+        // catalogue has been searched for the second read as well. The timeout only turns a hang into a failure.
+        await films.AlternativeStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        await films.TwoReadsSearched.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         // Both reads have been searched while the first one's alternative-title calls are still held: its place was given back.
         films.Searched.ShouldContain(BoxTitle);
-        films.Searched.ShouldContain("HIGHLANDER THE SORCERER RETURNS");
+        films.Searched.ShouldContain(SecondTitle);
         films.AlternativeAsked.ShouldNotBeEmpty();
         reading.IsCompleted.ShouldBeFalse();
         films.Hold.SetResult();
