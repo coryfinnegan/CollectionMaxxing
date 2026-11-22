@@ -369,8 +369,19 @@ describe('shelfKind: a running time with one stray character at an end', () => {
   });
 
   it('Two stray letters after a running time leave the line a title', () => {
+    expect(onTwoSpines('1990 COLOR 135 MIN XY')).toBeUndefined();
     expect(onTwoSpines('92 Minutes XY')).toBeUndefined();
     expect(onTwoSpines('92 Minutes D E')).toBeUndefined();
+  });
+
+  it('A running time that starts with a digit still tolerates a stray letter after it', () => {
+    expect(onTwoSpines('1 HR 32 MIN D')).toBe('film');
+    expect(onTwoSpines('R 135 MIN D')).toBe('film');
+    expect(onTwoSpines('2 HRS D')).toBe('film');
+  });
+
+  it('A stray character at both ends leaves the line a title', () => {
+    expect(onTwoSpines('D 92 MIN D')).toBeUndefined();
   });
 
   it('A year with a stray letter is no running time', () => {

@@ -56,12 +56,11 @@ const RUNNING_TIME = new RegExp(`^(?:(?:approx|approximately|running time|runtim
  * does not have): one lone token of a single letter or digit is dropped from the start or the end for this test only, and only when
  * what is left is a running time. "92 Minutes XY", "92 Minutes Later" and "1999 D" stay as they were.
  */
-const STRAY_END = /^(?:[a-z\d] (.+)|(.+) [a-z\d])$/;
 function readsAsRunningTime(text: string): boolean {
   const line = normalize(text);
   if (RUNNING_TIME.test(line)) return true;
-  const stray = STRAY_END.exec(line);
-  return stray !== null && RUNNING_TIME.test(stray[1] ?? stray[2]);
+  // One token is dropped, from one end or the other, never one at each end.
+  return [line.replace(/^[a-z\d] /, ''), line.replace(/ [a-z\d]$/, '')].some((t) => t !== line && RUNNING_TIME.test(t));
 }
 
 const namesARunningTime = (lines: TextLine[]): boolean => lines.some((l) => readsAsRunningTime(l.text));

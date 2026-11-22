@@ -585,6 +585,13 @@ describe('a line with a word that mixes Latin and Cyrillic or Greek letters', ()
     expect(titleOf([row('CAFÉ ROYAL', 0.3, 0.2, 0.05, 0.3), row('ROYAL', 0.36, 0.25, 0.03, 0.25)])).toBe('CAFÉ ROYAL');
   });
 
+  it("A mixed-script line stays the spine's creator even when it loses the title", () => {
+    const lines = [row('THE ROAD', 0.3, 0.2, 0.05, 0.3), row('CORMAC МcCARTHY', 0.36, 0.25, 0.025, 0.3)];
+    const read = shelfTitleOf(lines, T);
+    expect(read?.text).toBe('THE ROAD');
+    expect(creatorOf(read?.rest ?? [], read!.line, T)).toBe('CORMAC МcCARTHY');
+  });
+
   it("A mixed-script line still names the spine's creator when it is the only name", () => {
     const lines = [row('THE ROAD', 0.3, 0.2, 0.05, 0.3), row('CORMAC МcCARTHY', 0.36, 0.25, 0.025, 0.3)];
     const found = shelfTitleOf(lines, T);
