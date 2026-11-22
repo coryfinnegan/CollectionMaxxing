@@ -44,6 +44,10 @@ struct CmTextOptions {
   var fast = false
   var languageCorrection = false
   var regions: [CGRect] = []
+  // Left nil, the request does not set them and the OS's own defaults stand: the scanner's request is exactly what it always was.
+  var languages: [String]? = nil
+  var automaticallyDetectsLanguage: Bool? = nil
+  var revision: Int? = nil
 
   init() {}
 
@@ -51,6 +55,12 @@ struct CmTextOptions {
     guard let options = options else { return }
     fast = (options["level"] as? String) == "fast"
     languageCorrection = (options["languageCorrection"] as? Bool) ?? false
+    if let value = options["languages"], !(value is NSNull) {
+      guard let named = value as? [String] else { throw CmVisionBadLanguageException("languages that are not a list of codes") }
+      languages = named
+    }
+    if let value = options["automaticallyDetectsLanguage"] as? Bool { automaticallyDetectsLanguage = value }
+    if let value = options["revision"] as? NSNumber { revision = value.intValue }
     guard let value = options["regions"], !(value is NSNull) else { return }
     guard let raw = value as? [[String: Any]] else { throw CmVisionBadRegionException("regions that are not boxes") }
     regions = try raw.map { region in
@@ -87,14 +97,14 @@ enum CmText {
     }
 
     if options.regions.isEmpty {
-      let request = makeRequest(options)
+      let request = try makeRequest(options)
       try handler.perform([request])
       return lines(of: request, rotation: rotation, region: nil)
     }
 
     var read: [[String: Any]] = []
     for (index, region) in options.regions.enumerated() {
-      let request = makeRequest(options)
+      let request = try makeRequest(options)
       request.regionOfInterest = CmContract.visionRegion(region)
       try handler.perform([request])
       read.append(contentsOf: lines(of: request, rotation: rotation, region: index))
@@ -102,11 +112,38 @@ enum CmText {
     return read
   }
 
-  private static func makeRequest(_ options: CmTextOptions) -> VNRecognizeTextRequest {
+  /// The request a text pass performs. Each of languages, language detection and revision is set only when the options name it. A revision the OS
+  /// does not support raises an Objective-C exception at perform time that Swift cannot catch, so it is refused here, before any read.
+  static func makeRequest(_ options: CmTextOptions) throws -> VNRecognizeTextRequest {
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = options.fast ? .fast : .accurate
     request.usesLanguageCorrection = options.languageCorrection
+    if let revision = options.revision {
+      let supported = VNRecognizeTextRequest.supportedRevisions
+      guard supported.contains(revision) else {
+        let names = supported.sorted().map { String($0) }.joined(separator: ", ")
+        throw CmVisionBadRevisionException("\(revision) (supported: \(names))")
+      }
+      request.revision = revision
+    }
+    if let languages = options.languages { request.recognitionLanguages = languages }
+    if let detects = options.automaticallyDetectsLanguage { request.automaticallyDetectsLanguage = detects }
     return request
+  }
+
+  /// What `makeRequest` builds for these options, as the contract's TextRequestDescription. Nothing is performed and no picture is read.
+  static func describe(_ options: CmTextOptions) throws -> [String: Any] {
+    let request = try makeRequest(options)
+    let languages: [String] = (try? request.supportedRecognitionLanguages()) ?? []
+    return CmContract.textRequestDescription(
+      revision: request.revision,
+      defaultRevision: VNRecognizeTextRequest.defaultRevision,
+      supportedRevisions: VNRecognizeTextRequest.supportedRevisions.sorted(),
+      recognitionLanguages: request.recognitionLanguages,
+      automaticallyDetectsLanguage: request.automaticallyDetectsLanguage,
+      supportedRecognitionLanguages: languages,
+      osBuild: ProcessInfo.processInfo.operatingSystemVersionString
+    )
   }
 
   private static func lines(of request: VNRecognizeTextRequest, rotation: Int, region: Int?) -> [[String: Any]] {
@@ -128,6 +165,18 @@ final class CmVisionBadOrientationException: GenericException<String> {
 final class CmVisionBadRegionException: GenericException<String> {
   override var reason: String {
     "A text region is x, y, width and height, read upright: \(param)"
+  }
+}
+
+final class CmVisionBadRevisionException: GenericException<String> {
+  override var reason: String {
+    "Text recognition has no revision \(param)"
+  }
+}
+
+final class CmVisionBadLanguageException: GenericException<String> {
+  override var reason: String {
+    "Text recognition languages are a list of language codes: \(param)"
   }
 }
 

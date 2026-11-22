@@ -58,25 +58,49 @@ export class ShelfUpgrades {
   /** The sessions whose server answered "no reader": nothing more goes for them. */
   private readonly readerOff = new Set<string>();
 
+  private unsubscribeTray: (() => void) | undefined;
+  /** The one timer that runs the queue again when the oldest snap's wait (Retry-After, back-off) is over. */
+  private wake: ReturnType<typeof setTimeout> | undefined;
+
   constructor(
-    private readonly deps: PipelineDeps,
-    private readonly now: () => number,
-    private readonly isCurrent: (sessionId: string) => boolean,
+    private deps: PipelineDeps,
+    private now: () => number,
   ) {}
+
+  /** A screen that opens again hands over its own deps and clock; the queue, its tries and its waits stay. */
+  adopt(deps: PipelineDeps, now: () => number) {
+    this.deps = deps;
+    this.now = now;
+  }
+
+  /** Whether `sessionId` is still the scan this library's tray holds: not discarded, added or replaced. The screen being open does not matter. */
+  private isCurrent(sessionId: string) {
+    return this.deps.tray.getState().sessionId === sessionId;
+  }
 
   private get shelf() {
     return this.deps.shelf;
   }
 
-  /** The scanner opened (or reopened): a snap a killed app left waiting is sent now. */
+  /**
+   * The uploads run for as long as the scan is open, not as long as the scanner screen is: they start with the signed-in app (or
+   * the scanner, whichever is first) and a snap a killed app left waiting is sent now. Calling it again changes nothing for one
+   * already in flight.
+   */
   begin() {
     this.stopped = false;
+    // Discard and Add (on Review, with the scanner closed) end the scan these photos are sent for: an upload in flight stops with it.
+    this.unsubscribeTray?.();
+    this.unsubscribeTray = this.deps.tray.subscribe(() => this.recheck());
     this.run();
   }
 
-  /** Leaving the scanner or a library switch: what is in flight is aborted and nothing waits any more. */
+  /** A library switch or sign-out: what is in flight is aborted and nothing waits any more. Leaving the scanner does not call this. */
   stop() {
     this.stopped = true;
+    this.unsubscribeTray?.();
+    this.unsubscribeTray = undefined;
+    this.cancelWake();
     this.inFlight?.controller.abort();
     this.clearAll();
   }
@@ -88,6 +112,23 @@ export class ShelfUpgrades {
     this.deps.store.getState().setShelfUpload(snapId, true);
     this.deps.snaps.pin(snapId); // the still stays until the upgrade is done or given up
     this.run();
+  }
+
+  /** Runs the queue again at `at` (ms since the epoch), replacing any earlier timer: the queue does not depend on a screen to try again. */
+  private wakeAt(at: number) {
+    this.cancelWake();
+    if (this.stopped) return;
+    const timer = setTimeout(() => {
+      this.wake = undefined;
+      this.run();
+    }, Math.max(0, at - this.now()));
+    (timer as { unref?: () => void }).unref?.(); // never keeps a Node process (a test) alive
+    this.wake = timer;
+  }
+
+  private cancelWake() {
+    if (this.wake !== undefined) clearTimeout(this.wake);
+    this.wake = undefined;
   }
 
   /** Sends what is due. Safe to call at any time; one upload runs at a time. */
@@ -130,9 +171,16 @@ export class ShelfUpgrades {
         this.clearAll(); // the server cannot read shelves (any more): Apple's read stands
         return;
       }
-      if ((this.retryAt.get(next.snapId) ?? 0) > this.now()) return; // the oldest waits out its Retry-After; nothing jumps the queue
+      const due = this.retryAt.get(next.snapId) ?? 0;
+      if (due > this.now()) {
+        this.wakeAt(due); // the oldest waits out its Retry-After; nothing jumps the queue
+        return;
+      }
       const outcome = await this.upload(next);
-      if (outcome === 'wait' || outcome === 'retry_later') return; // the next flush tries again
+      if (outcome === 'wait' || outcome === 'retry_later') {
+        this.wakeAt(this.retryAt.get(next.snapId) ?? this.now());
+        return;
+      }
       if (outcome === 'reader_off') {
         const sessionId = next.sessionId;
         if (sessionId) this.readerOff.add(sessionId);
@@ -242,3 +290,40 @@ export class ShelfUpgrades {
   }
 }
 
+
+/**
+ * One queue per library, shared by the scanner's pipeline and the signed-in app's bridge, so a scanner that closes (or opens again)
+ * neither aborts a read nor starts a second one. Keyed by the pipeline store so a test's kit has a queue of its own.
+ */
+const shared = new WeakMap<object, Map<string, ShelfUpgrades>>();
+
+export function sharedShelfUpgrades(deps: PipelineDeps, now: () => number): ShelfUpgrades {
+  let byLibrary = shared.get(deps.store);
+  if (!byLibrary) shared.set(deps.store, (byLibrary = new Map()));
+  let upgrades = byLibrary.get(deps.libraryId);
+  if (upgrades) upgrades.adopt(deps, now);
+  else byLibrary.set(deps.libraryId, (upgrades = new ShelfUpgrades(deps, now)));
+  return upgrades;
+}
+
+/** The app came back to the front: what is due is sent now (a timer may not have run while the app slept). */
+export function runShelfUploads(store: object, libraryId: string) {
+  shared.get(store)?.get(libraryId)?.run();
+}
+
+/** The signed-in app starts (or picks up) this library's uploads: what a killed app left waiting is sent. */
+export function resumeShelfUploads(deps: PipelineDeps) {
+  sharedShelfUpgrades(deps, () => (deps.now ?? Date.now)()).begin();
+}
+
+/** A library switch or sign-out: every upload in flight (of `libraryId` only, or of all but `except`) is aborted and nothing waits. */
+export function stopShelfUploads(store: object, filter: { libraryId?: string; except?: string } = {}) {
+  for (const [libraryId, upgrades] of shared.get(store) ?? []) {
+    if ((filter.libraryId === undefined || filter.libraryId === libraryId) && filter.except !== libraryId) upgrades.stop();
+  }
+}
+
+/** Snaps or the tray changed outside the pipeline (a clear): an upload for what is gone is aborted. */
+export function recheckShelfUploads(store: object, libraryId?: string) {
+  for (const [id, upgrades] of shared.get(store) ?? []) if (libraryId === undefined || libraryId === id) upgrades.recheck();
+}

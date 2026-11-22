@@ -19,7 +19,7 @@ describe('cm-vision contract', () => {
   });
 
   it('compiles only when every interface field is listed (type-level check)', () => {
-    expect(keyListsAreComplete).toEqual([true, true, true, true, true, true, true, true]);
+    expect(keyListsAreComplete).toEqual([true, true, true, true, true, true, true, true, true]);
   });
 
   it('Swift builders emit exactly the schema keys', () => {
@@ -30,7 +30,7 @@ describe('cm-vision contract', () => {
     expect(swiftPending).toEqual([]);
   });
 
-  it.each(['ModelItem', 'ModelCapabilities', 'ReadItemsResult', 'DeviceStatus'])('Swift has a contract block for %s', (name) => {
+  it.each(['ModelItem', 'ModelCapabilities', 'ReadItemsResult', 'DeviceStatus', 'TextRequestDescription'])('Swift has a contract block for %s', (name) => {
     const source = fs.readFileSync(path.join(__dirname, '..', '..', 'ios', 'CmVisionContract.swift'), 'utf8');
     expect(Object.keys(swiftKeys(source))).toContain(name);
   });
@@ -47,6 +47,13 @@ describe('cm-vision contract', () => {
     expect(swiftKeys(source).TextLine).toEqual(['text', 'confidence', 'box', 'pass', 'region']);
     expect(source).toMatch(/^\s*"pass": pass,$/m); // in the literal: every line has it
     expect(source).toMatch(/^\s*if let region = region \{ line\["region"\] = region \}$/m); // by assignment: only a region's lines have it
+  });
+
+  it('describeTextRequest returns the contract\'s shape: Swift builds exactly the schema\'s keys, and the keys are all required', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', '..', 'ios', 'CmVisionContract.swift'), 'utf8');
+    expect([...swiftKeys(source).TextRequestDescription].sort()).toEqual(Object.keys(defs.TextRequestDescription.properties).sort());
+    expect([...defs.TextRequestDescription.required].sort()).toEqual(Object.keys(defs.TextRequestDescription.properties).sort());
+    expect(checkSwiftContract()).toEqual([]);
   });
 
   it('a Swift key missing from the schema is reported', () => {
