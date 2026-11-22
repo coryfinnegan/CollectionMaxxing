@@ -203,15 +203,16 @@ public class ShelfReadPlaceTests(ApiFixture api) : ShelfReadTest(api)
     {
         var (editor, sessionId) = await ArrangeAsync(Harbor, Meadow);
         using var _ = editor;
-        var standing = Read(title: Meadow, kind: "game", format: "game_cartridge", year: 1996, segmentId: Segment);
+        var standing = Read(title: "Meadow", kind: "game", format: "game_cartridge", year: 1996, segmentId: Segment);
         standing["box"] = new { x = 0.3, y = 0.1, width = 0.05, height = 0.8 };
         var snap = await IdentifyShelfSnapAsync(editor, sessionId, "shelf_segment", standing, PhoneBook("Quill Harbor", 0.3, modelOnly: true));
+        (await DecideAsync(editor, sessionId, (await PhoneRowAsync(sessionId, "Meadow")).Id, new { decision = "rejected" })).StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         Reader.Answer = _ => ScriptedReader.Found(Harbor);
 
         await CandidatesOfAsync(await ReadShelfAsync(editor, sessionId, snap));
 
         (await ServerRowsAsync(sessionId)).Single().BoxX.ShouldBeNull("the standing row of another book still shows at that place");
-        (await PhoneRowAsync(sessionId, Meadow)).BoxX.ShouldBe(0.3);
+        (await PhoneRowAsync(sessionId, "Meadow")).BoxX.ShouldBe(0.3);
     }
 
     [Fact]
