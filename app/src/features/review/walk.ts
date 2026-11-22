@@ -29,6 +29,12 @@ const sideOverlap = (a: Rect, b: Rect): number => {
   return overlap / Math.max(1e-9, Math.min(a.width, b.width));
 };
 
+/** How much two boxes overlap up and down, as a share of the shorter one. */
+const heightOverlap = (a: Rect, b: Rect): number => {
+  const overlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  return overlap / Math.max(1e-9, Math.min(a.height, b.height));
+};
+
 /** The gap between two boxes up and down (0 when they overlap). */
 const heightGap = (a: Rect, b: Rect): number => Math.max(0, Math.max(a.y, b.y) - Math.min(a.y + a.height, b.y + b.height));
 
@@ -38,53 +44,6 @@ function groupsOf(count: number, joined: (i: number, j: number) => boolean): num
   const root = (i: number): number => (parent[i] === i ? i : (parent[i] = root(parent[i]!)));
   for (let i = 0; i < count; i++) for (let j = i + 1; j < count; j++) if (joined(i, j)) parent[root(i)] = root(j);
   return parent.map((_, i) => root(i));
-}
-
-/** The middle value of a list (the mean of the two in the middle for an even count). */
-const medianOf = (values: number[]): number => {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
-};
-
-/** A box taller than this many times the typical standing height may span two shelves, so it does not take part in forming them. */
-const TALL_SHARE = 1.6;
-
-/**
- * Which shelf each box stands on: the shelf's number, counted in the order the shelves were formed (top to bottom). Boxes are taken from
- * the top by the center line of each, and one joins the shelf under way when its center line sits inside the shelf's typical extent (the
- * median top to the median bottom of the boxes already on it), or the shelf's own median center sits inside the box. A tilted shelf
- * drifts a little at a time, so it stays one shelf; a book from the shelf below sits well outside it. A box more than 1.6 times the
- * typical standing height (the median of the taller half of the boxes) is left out when forming the shelves (it could span two); it then joins the shelf whose median center is nearest.
- * Ties break on the box's place in the input, so the answer never depends on the order the boxes come in.
- */
-function shelvesOf(boxes: readonly Rect[]): number[] {
-  const middle = (b: Rect) => b.y + b.height / 2;
-  // The typical standing height: the median of the taller half, so flat stacks (short boxes) do not make every spine look tall.
-  const heights = boxes.map((b) => b.height).sort((x, y) => y - x);
-  const medianHeight = medianOf(heights.slice(0, Math.ceil(heights.length / 2)));
-  const spans = boxes.map((b) => b.height > TALL_SHARE * medianHeight);
-  // With every box tall (none can be, by the median, but a degenerate list may), all of them form shelves.
-  const forming = boxes.flatMap((_, i) => (spans[i] ? [] : [i])).sort((a, b) => middle(boxes[a]!) - middle(boxes[b]!) || a - b);
-  const shelves: number[][] = [];
-  const bandOf = (shelf: number[]) => ({ top: medianOf(shelf.map((i) => boxes[i]!.y)), bottom: medianOf(shelf.map((i) => boxes[i]!.y + boxes[i]!.height)) });
-  const centerOf = (shelf: number[]) => medianOf(shelf.map((i) => middle(boxes[i]!)));
-  for (const i of forming) {
-    const shelf = shelves[shelves.length - 1];
-    const box = boxes[i]!;
-    const band = shelf ? bandOf(shelf) : undefined;
-    if (shelf && band && ((middle(box) >= band.top && middle(box) <= band.bottom) || (centerOf(shelf) >= box.y && centerOf(shelf) <= box.y + box.height))) shelf.push(i);
-    else shelves.push([i]);
-  }
-  const shelfOf = boxes.map(() => 0);
-  shelves.forEach((shelf, n) => shelf.forEach((i) => (shelfOf[i] = n)));
-  const centers = shelves.map(centerOf);
-  boxes.forEach((b, i) => {
-    if (!spans[i] || shelves.length === 0) return;
-    // The nearest shelf by center line; the upper one on a tie.
-    shelfOf[i] = centers.reduce((best, c, n) => (Math.abs(c - middle(b)) < Math.abs(centers[best]! - middle(b)) ? n : best), 0);
-  });
-  return shelfOf;
 }
 
 export interface ShelfKey {
@@ -99,13 +58,13 @@ export interface ShelfKey {
 }
 
 /**
- * Where each box sits on the photo's shelves (see `shelvesOf`: by each box's center line, a box that could span two shelves going to the
- * nearest). Shelves go top to bottom. On a shelf, boxes that overlap sideways by more than half the narrower one and touch up and down (a gap
+ * Where each box sits on the photo's shelves. Boxes whose heights overlap by more than half the shorter one stand on one shelf;
+ * shelves go top to bottom. On a shelf, boxes that overlap sideways by more than half the narrower one and touch up and down (a gap
  * under the smaller one's height) are a stack, read top to bottom, in the row by its leftmost center. Everything else goes left to
  * right by its center. Each box gets a key, so the order is one consistent sort whatever order the boxes come in.
  */
 export function shelfKeys(boxes: readonly Rect[]): ShelfKey[] {
-  const shelfOf = shelvesOf(boxes);
+  const shelfOf = groupsOf(boxes.length, (i, j) => heightOverlap(boxes[i]!, boxes[j]!) > 0.5);
   const stackOf = groupsOf(
     boxes.length,
     (i, j) =>

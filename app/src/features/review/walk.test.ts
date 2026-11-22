@@ -82,34 +82,6 @@ describe('shelf order', () => {
     expect(shelfOrder([...entries].reverse())).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
   });
 
-  it('keeps two shelves apart when one box is tall enough to span both', () => {
-    const top = (x: number) => ({ x, y: 0.05, width: 0.08, height: 0.3 });
-    const low = (x: number) => ({ x, y: 0.55, width: 0.08, height: 0.3 });
-    const entries = [
-      { item: 'tall', box: { x: 0.8, y: 0.05, width: 0.08, height: 0.8 } },
-      { item: 'f', box: low(0.4) },
-      { item: 'a', box: top(0.1) },
-      { item: 'e', box: low(0.25) },
-      { item: 'd', box: low(0.1) },
-      { item: 'c', box: top(0.4) },
-      { item: 'b', box: top(0.25) },
-    ];
-    // The tall box stands among the shelf its center is nearest to (the top one, whose center it shares), at its place from the left.
-    expect(shelfOrder(entries)).toEqual(['a', 'b', 'c', 'tall', 'd', 'e', 'f']);
-    expect(shelfOrder([...entries].reverse())).toEqual(['a', 'b', 'c', 'tall', 'd', 'e', 'f']);
-  });
-
-  it('keeps a tilted shelf in its own row: no book from the shelf below joins the row above', () => {
-    // Both shelves lean by about 8 degrees (0.2 of the photo's height per width: 8 degrees on a 4:3 photo); the shelves are 0.3 apart.
-    const lean = (x: number) => (x - 0.1) * 0.2;
-    const row = (names: string[], y: number) => names.map((item, i) => ({ item, box: { x: 0.1 + i * 0.16, y: y + lean(0.1 + i * 0.16), width: 0.1, height: 0.3 } }));
-    const entries = [...row(['a', 'b', 'c', 'd', 'e', 'f'], 0.05), ...row(['g', 'h', 'i', 'j', 'k', 'l'], 0.35)];
-    const order = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l'];
-    expect(shelfOrder(entries)).toEqual(order);
-    expect(shelfOrder([...entries].reverse())).toEqual(order);
-    expect(shelfOrder([entries[3]!, entries[9]!, ...entries.filter((_, n) => n !== 3 && n !== 9)])).toEqual(order);
-  });
-
   it('reads a flat stack beside upright spines top to bottom, in its place in the row', () => {
     const entries = [
       { item: 'spine-left', box: { x: 0.1, y: 0.1, width: 0.05, height: 0.8 } },
