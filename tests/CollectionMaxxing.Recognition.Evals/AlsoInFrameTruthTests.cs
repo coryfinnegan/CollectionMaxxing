@@ -203,6 +203,18 @@ public sealed class AlsoInFrameTruthTests : IDisposable
     }
 
     [Fact]
+    public void A_row_with_a_truth_items_title_but_another_kind_is_scored_as_today_not_set_aside()
+    {
+        var film = Book(OnShelf, kind: "film");
+
+        var without = Score(Truth([BookItem(OnShelf)], null), film).ShelfOf();
+        var withList = Score(Truth([BookItem(OnShelf)], [BookItem(OnShelf, "film")]), film).ShelfOf();
+
+        withList.SetAside.ShouldBeNull();
+        JsonSerializer.Serialize(withList, JsonSerializerOptions.Web).ShouldBe(JsonSerializer.Serialize(without, JsonSerializerOptions.Web));
+    }
+
+    [Fact]
     public void A_missed_truth_item_names_no_set_aside_row_as_its_closest_read()
     {
         var scored = Score(Truth([BookItem("Alpha Beta")], [BookItem("Alpha Betas")]), Book("Alpha Betas"));
