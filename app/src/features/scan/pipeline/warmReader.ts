@@ -23,11 +23,12 @@ export interface ReaderWarmerDeps {
 
 export function createReaderWarmer({ enabled, send, now }: ReaderWarmerDeps): ReaderWarmer {
   let warmedYet = false;
+  let showing = 0; // scanner screens showing now: the Scan tab and the modal may overlap
   let closedAt: number | undefined;
   return {
     opened() {
-      const away = closedAt === undefined ? 0 : now() - closedAt;
-      closedAt = undefined;
+      const away = showing === 0 && closedAt !== undefined ? now() - closedAt : 0;
+      showing += 1;
       try {
         if (!enabled()) return;
         if (warmedYet && away < WARM_AGAIN_AFTER_MS) return;
@@ -38,11 +39,21 @@ export function createReaderWarmer({ enabled, send, now }: ReaderWarmerDeps): Re
       }
     },
     closed() {
-      closedAt ??= now();
+      showing = Math.max(0, showing - 1);
+      if (showing === 0) closedAt = now();
     },
   };
 }
 
-/** The app's one warmer. */
-export const readerWarmer: (enabled: () => boolean) => ReaderWarmer = (enabled) =>
-  createReaderWarmer({ enabled, send: () => warmShelfReader(), now: Date.now });
+let shared: ReaderWarmer | undefined;
+
+/** The app's one warmer, shared by every scanner screen, so the five-minute rule holds across the Scan tab and the modal. */
+export function appReaderWarmer(enabled: () => boolean): ReaderWarmer {
+  shared ??= createReaderWarmer({ enabled, send: () => warmShelfReader(), now: Date.now });
+  return shared;
+}
+
+/** Forgets what was warmed (tests). */
+export function resetAppReaderWarmer(): void {
+  shared = undefined;
+}

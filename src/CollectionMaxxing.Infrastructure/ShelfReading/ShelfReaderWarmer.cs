@@ -20,10 +20,21 @@ public sealed partial class ShelfReaderWarmer(
     /// <summary>A cold load took 37 s on the owner's card; leave room for a slower volume.</summary>
     public static readonly TimeSpan WarmTimeout = TimeSpan.FromSeconds(90);
 
+    /// <summary>A warm-up that was answered keeps the reader loaded for five idle minutes; a call within this long of one is ignored, so no caller can keep the card held by calling every few minutes.</summary>
+    public static readonly TimeSpan Floor = TimeSpan.FromMinutes(4);
+
     private int _running;
+
+    private long _lastAnsweredTicks; // UTC ticks of the last warm-up the reader answered with success; 0 when none
 
     public void RequestWarm()
     {
+        var last = Volatile.Read(ref _lastAnsweredTicks);
+        if (last != 0 && time.GetUtcNow() - new DateTimeOffset(last, TimeSpan.Zero) < Floor)
+        {
+            return;
+        }
+
         if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)
         {
             return;
@@ -36,11 +47,14 @@ public sealed partial class ShelfReaderWarmer(
     private async Task WarmAsync()
     {
         var started = time.GetTimestamp();
+        var status = 0;
+        string? failure = null;
         try
         {
             var settings = options.CurrentValue;
             if (string.IsNullOrWhiteSpace(settings.Endpoint) || !ShelfReaderOptions.IsHttpUrl(settings.Endpoint))
             {
+                Volatile.Write(ref _running, 0);
                 return;
             }
 
@@ -57,19 +71,30 @@ public sealed partial class ShelfReaderWarmer(
             };
             using var http = clients.CreateClient(ClientName);
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-            var status = (int)response.StatusCode;
-            var took = (long)time.GetElapsedTime(started).TotalMilliseconds;
-            LogWarm(status, took);
+            status = (int)response.StatusCode;
+            if (response.IsSuccessStatusCode)
+            {
+                Volatile.Write(ref _lastAnsweredTicks, time.GetUtcNow().UtcTicks);
+            }
         }
         catch (Exception e)
         {
-            var type = e.GetType().Name;
-            var took = (long)time.GetElapsedTime(started).TotalMilliseconds;
-            LogFailed(type, took);
+            failure = e.GetType().Name;
         }
-        finally
+
+        // Free the place before logging: whoever sees the log may ask again at once.
+        Volatile.Write(ref _running, 0);
+        var took = (long)time.GetElapsedTime(started).TotalMilliseconds;
+        if (failure is null)
         {
-            Volatile.Write(ref _running, 0);
+            if (status != 0)
+            {
+                LogWarm(status, took);
+            }
+        }
+        else
+        {
+            LogFailed(failure, took);
         }
     }
 

@@ -54,7 +54,7 @@ function PhoneScanner({ onClose, showClose }: { onClose?: () => void; showClose:
   // The Scan tab stays mounted behind the other tabs: the camera, barcodes and auto-snap run only while this screen is showing.
   const active = useScreenActive();
   // Wakes the server's shelf reader while the scanner shows, so the first shelf snap does not pay its model load (#832). Fire and forget.
-  useWarmReader(active);
+  useWarmReader(active && !!libraryId);
   const leaveBound = useCallback(() => {
     boundScanStore.getState().clear();
     router.back();

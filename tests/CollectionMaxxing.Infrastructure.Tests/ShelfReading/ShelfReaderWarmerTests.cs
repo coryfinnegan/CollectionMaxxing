@@ -23,7 +23,24 @@ public sealed class ShelfReaderWarmerTests : IDisposable
 
     private readonly Capture _log = new();
 
-    public void Dispose() => _server.Dispose();
+    private readonly ManualResetEventSlim _arrived = new(false);
+
+    private readonly ManualResetEventSlim _release = new(false);
+
+    public void Dispose()
+    {
+        _release.Set();
+        _server.Dispose();
+    }
+
+    /// <summary>The reader takes the request and says nothing until the test lets it go; the test knows when the request is in flight.</summary>
+    private void HoldTheReader() =>
+        _server.Given(Request.Create().WithPath(Path).UsingPost()).RespondWith(Response.Create().WithCallback(_ =>
+        {
+            _arrived.Set();
+            _release.Wait(TimeSpan.FromSeconds(30));
+            return new WireMock.ResponseMessage { StatusCode = 200 };
+        }));
 
     private ShelfReaderWarmer Warmer(string? endpoint = null)
     {
@@ -86,28 +103,71 @@ public sealed class ShelfReaderWarmerTests : IDisposable
     [Fact]
     public async Task A_second_request_while_a_warm_up_runs_is_dropped()
     {
-        _server.Given(Request.Create().WithPath(Path).UsingPost()).RespondWith(Response.Create().WithStatusCode(200).WithDelay(TimeSpan.FromSeconds(2)).WithBody("{}"));
+        HoldTheReader();
         var warmer = Warmer();
 
         warmer.RequestWarm();
-        await Task.Delay(300);
+        _arrived.Wait(TimeSpan.FromSeconds(20)).ShouldBeTrue();
         warmer.RequestWarm();
         warmer.RequestWarm();
-        await Until(() => Hits >= 1);
-        await Task.Delay(300);
+        _release.Set();
+        await Until(() => _log.Messages.Count == 1);
 
         Hits.ShouldBe(1);
     }
 
     [Fact]
-    public async Task A_new_warm_up_is_allowed_once_the_last_one_has_ended()
+    public async Task A_new_warm_up_is_allowed_once_the_last_one_has_ended_when_it_was_not_answered()
+    {
+        _server.Given(Request.Create().WithPath(Path).UsingPost()).RespondWith(Response.Create().WithStatusCode(503));
+        var warmer = Warmer();
+
+        warmer.RequestWarm();
+        await Until(() => _log.Messages.Count == 1);
+        warmer.RequestWarm();
+        await Until(() => Hits == 2);
+    }
+
+    [Fact]
+    public async Task A_second_warm_up_within_four_minutes_of_a_good_one_sends_nothing()
     {
         _server.Given(Request.Create().WithPath(Path).UsingPost()).RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
         var warmer = Warmer();
 
         warmer.RequestWarm();
         await Until(() => _log.Messages.Count == 1);
+        _time.Advance(ShelfReaderWarmer.Floor - TimeSpan.FromSeconds(1));
         warmer.RequestWarm();
+        warmer.RequestWarm();
+
+        Hits.ShouldBe(1);
+        _log.Messages.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_warm_up_four_minutes_after_a_good_one_is_sent()
+    {
+        _server.Given(Request.Create().WithPath(Path).UsingPost()).RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+        var warmer = Warmer();
+
+        warmer.RequestWarm();
+        await Until(() => _log.Messages.Count == 1);
+        _time.Advance(ShelfReaderWarmer.Floor);
+        warmer.RequestWarm();
+
+        await Until(() => Hits == 2);
+    }
+
+    [Fact]
+    public async Task A_warm_up_after_a_failed_one_is_sent()
+    {
+        _server.Given(Request.Create().WithPath(Path).UsingPost()).RespondWith(Response.Create().WithStatusCode(500));
+        var warmer = Warmer();
+
+        warmer.RequestWarm();
+        await Until(() => _log.Messages.Count == 1);
+        warmer.RequestWarm();
+
         await Until(() => Hits == 2);
     }
 
@@ -135,11 +195,11 @@ public sealed class ShelfReaderWarmerTests : IDisposable
     [Fact]
     public async Task A_warm_up_the_reader_never_answers_is_cut_off_after_its_own_timeout()
     {
-        _server.Given(Request.Create().WithPath(Path).UsingPost()).RespondWith(Response.Create().WithStatusCode(200).WithDelay(TimeSpan.FromMinutes(5)).WithBody("{}"));
+        HoldTheReader();
         var warmer = Warmer();
 
         warmer.RequestWarm();
-        await Task.Delay(300);
+        _arrived.Wait(TimeSpan.FromSeconds(20)).ShouldBeTrue();
         _time.Advance(ShelfReaderWarmer.WarmTimeout + TimeSpan.FromSeconds(1));
 
         await Until(() => _log.Messages.Count == 1);
