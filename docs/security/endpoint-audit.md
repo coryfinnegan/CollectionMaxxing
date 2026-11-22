@@ -110,6 +110,7 @@ To add an endpoint: add its row to `AuthorizationMatrix.Cases`, then add its row
 | DELETE | `/api/v1/me/web-sessions/{id:guid}` | signed in | any signed-in caller (own data only) | Y | Y | none (204, no body) |
 | DELETE | `/api/v1/me/web-sessions` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | none (204, no body) |
 | GET | `/api/v1/recognition/config` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | prompt and thresholds (no secrets) |
+| POST | `/api/v1/recognition/shelf-reader:warm` | signed in | any signed-in caller (own data only) | Y | n/a (no object id; acts on the caller) | nothing (no body; 202 or 204; wakes the reader, rate-limited) |
 | DELETE | `/api/v1/scan-sessions/{id:guid}` | scan-session role | editor and above (in the session's library) | Y | Y | none (204, no body) |
 | GET | `/api/v1/scan-sessions/{id:guid}` | scan-session role | viewer and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
 | POST | `/api/v1/scan-sessions/{id:guid}/auto-commit:undo` | scan-session role | editor and above (in the session's library) | Y | Y | CandidateDto / ScanSessionDto: library data, no provider payloads |
