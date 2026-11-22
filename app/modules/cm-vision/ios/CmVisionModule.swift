@@ -20,6 +20,11 @@ public class CmVisionModule: Module {
       return true
     }
 
+    // What a text request with these options is on this OS, built as `recognizeText` builds it and not performed (the eval's probes record it).
+    AsyncFunction("describeTextRequest") { (options: [String: Any]?) -> [String: Any] in
+      return try CmText.describe(try CmTextOptions(options))
+    }
+
     // With no options the request is exactly the scanner's own: accurate, no language correction, the whole picture. A caller names only what it changes.
     AsyncFunction("recognizeText") { (imageUri: String, orientations: [Int]?, options: [String: Any]?) -> [[String: Any]] in
       let image = try CmImage.load(imageUri)

@@ -61,6 +61,49 @@ describe('ios/CmVisionImage.swift text options', () => {
   });
 });
 
+describe('ios/CmVisionImage.swift reader settings', () => {
+  const options = between(image, 'struct CmTextOptions', '\nenum CmText');
+  const text = between(image, 'enum CmText', 'final class CmVisionBadOrientationException');
+  const make = between(text, 'static func makeRequest', 'static func describe');
+
+  it('leaves languages, language detection and the revision unset unless the options name them, so the scanner\'s request is what it was', () => {
+    expect(options).toMatch(/var languages: \[String\]\? = nil/);
+    expect(options).toMatch(/var automaticallyDetectsLanguage: Bool\? = nil/);
+    expect(options).toMatch(/var revision: Int\? = nil/);
+    expect(make).toMatch(/if let languages = options\.languages \{ request\.recognitionLanguages = languages \}/);
+    expect(make).toMatch(/if let detects = options\.automaticallyDetectsLanguage \{ request\.automaticallyDetectsLanguage = detects \}/);
+    expect((make.match(/\.recognitionLanguages\s*=/g) ?? []).length).toBe(1);
+    expect((make.match(/\.automaticallyDetectsLanguage\s*=/g) ?? []).length).toBe(1);
+    expect((make.match(/\.revision\s*=/g) ?? []).length).toBe(1);
+    expect(make).toMatch(/if let revision = options\.revision \{/); // the revision is set inside the guard that names it
+  });
+
+  it('refuses a revision the OS does not support before any read, naming the supported ones, because Vision would raise an exception Swift cannot catch', () => {
+    const guarded = between(make, 'if let revision = options.revision {', '\n    }');
+    expect(guarded).toMatch(/VNRecognizeTextRequest\.supportedRevisions/);
+    expect(guarded).toMatch(/guard supported\.contains\(revision\) else/);
+    expect(guarded).toMatch(/throw CmVisionBadRevisionException\(/);
+    expect(guarded.indexOf('throw CmVisionBadRevisionException')).toBeLessThan(guarded.indexOf('request.revision = revision'));
+    expect(image).toMatch(/final class CmVisionBadRevisionException: GenericException<String>/);
+    expect(text).toMatch(/let request = try makeRequest\(options\)\n\s+try handler\.perform/); // built (and refused) before perform
+  });
+
+  it('describes a request by building it as a read does and performing nothing', () => {
+    const described = between(text, 'static func describe', 'private static func lines');
+    expect(described).toMatch(/let request = try makeRequest\(options\)/);
+    expect(described).not.toMatch(/perform|VNImageRequestHandler/);
+    expect(described).toMatch(/ProcessInfo\.processInfo\.operatingSystemVersionString/);
+    expect(described).toMatch(/VNRecognizeTextRequest\.defaultRevision/);
+    expect(described).toMatch(/VNRecognizeTextRequest\.supportedRevisions\.sorted\(\)/);
+    expect(described).toMatch(/\(try\? request\.supportedRecognitionLanguages\(\)\) \?\? \[\]/); // it throws: the OS not saying leaves the list empty
+  });
+
+  it('is exposed to TypeScript as describeTextRequest with the options a read takes', () => {
+    expect(module_).toMatch(/AsyncFunction\("describeTextRequest"\) \{ \(options: \[String: Any\]\?\) -> \[String: Any\] in/);
+    expect(module_).toMatch(/CmText\.describe\(try CmTextOptions\(options\)\)/);
+  });
+});
+
 describe('ios/CmVisionModule.swift recognizeText', () => {
   const body = between(module_, 'AsyncFunction("recognizeText")', 'AsyncFunction("modelCapabilities")');
 

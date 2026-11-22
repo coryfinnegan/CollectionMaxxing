@@ -123,4 +123,20 @@ enum CmContract {
     if let buildNumber = buildNumber, !buildNumber.isEmpty { status["buildNumber"] = buildNumber }
     return status
   }
+
+  // contract: TextRequestDescription
+  static func textRequestDescription(
+    revision: Int, defaultRevision: Int, supportedRevisions: [Int], recognitionLanguages: [String],
+    automaticallyDetectsLanguage: Bool, supportedRecognitionLanguages: [String], osBuild: String
+  ) -> [String: Any] {
+    return [
+      "revision": revision,
+      "defaultRevision": defaultRevision,
+      "supportedRevisions": supportedRevisions,
+      "recognitionLanguages": recognitionLanguages,
+      "automaticallyDetectsLanguage": automaticallyDetectsLanguage,
+      "supportedRecognitionLanguages": supportedRecognitionLanguages,
+      "osBuild": osBuild,
+    ]
+  }
 }

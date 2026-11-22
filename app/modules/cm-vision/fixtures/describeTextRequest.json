@@ -1,0 +1,81 @@
+[
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {},
+    "output": {
+      "revision": 3,
+      "defaultRevision": 3,
+      "supportedRevisions": [
+        1,
+        2,
+        3
+      ],
+      "recognitionLanguages": [
+        "en-US"
+      ],
+      "automaticallyDetectsLanguage": false,
+      "supportedRecognitionLanguages": [
+        "en-US",
+        "fr-FR",
+        "de-DE"
+      ],
+      "osBuild": "Version 26.0 (Build 23A000)"
+    }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "revision": 2
+    },
+    "output": {
+      "revision": 2,
+      "defaultRevision": 3,
+      "supportedRevisions": [
+        1,
+        2,
+        3
+      ],
+      "recognitionLanguages": [
+        "en-US"
+      ],
+      "automaticallyDetectsLanguage": false,
+      "supportedRecognitionLanguages": [
+        "en-US",
+        "fr-FR",
+        "de-DE"
+      ],
+      "osBuild": "Version 26.0 (Build 23A000)"
+    }
+  },
+  {
+    "capturedAt": "2026-01-01T00:00:00Z",
+    "engine": "hand-written",
+    "input": {
+      "languages": [
+        "fr-FR"
+      ],
+      "automaticallyDetectsLanguage": true
+    },
+    "output": {
+      "revision": 3,
+      "defaultRevision": 3,
+      "supportedRevisions": [
+        1,
+        2,
+        3
+      ],
+      "recognitionLanguages": [
+        "fr-FR"
+      ],
+      "automaticallyDetectsLanguage": true,
+      "supportedRecognitionLanguages": [
+        "en-US",
+        "fr-FR",
+        "de-DE"
+      ],
+      "osBuild": "Version 26.0 (Build 23A000)"
+    }
+  }
+]
