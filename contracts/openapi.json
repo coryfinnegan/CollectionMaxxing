@@ -12166,6 +12166,13 @@
             "type": "integer",
             "format": "int32",
             "default": 0
+          },
+          "setAside": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           }
         }
       },

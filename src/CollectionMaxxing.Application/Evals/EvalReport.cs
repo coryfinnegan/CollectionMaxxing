@@ -56,11 +56,11 @@ public static class EvalReport
             thresholdHash,
             note,
             regroundedFrom);
-        return new EvaluatedRun(summary, scored.Misses, Markdown(summary, scored.Misses, serverReader));
+        return new EvaluatedRun(summary, scored.Misses, Markdown(summary, scored.Misses, serverReader, scored.SetAside));
     }
 
     /// <summary>The report that stays on the PC: the gate table, the regression check and the worst misses by id (truth against what was read).</summary>
-    public static string Markdown(EvalSummary summary, IReadOnlyList<EvalMiss> misses, string? serverReader = null)
+    public static string Markdown(EvalSummary summary, IReadOnlyList<EvalMiss> misses, string? serverReader = null, IReadOnlyList<EvalSetAside>? setAside = null)
     {
         var text = new StringBuilder();
         if (summary.RegroundedFrom is { } from)
@@ -151,6 +151,20 @@ public static class EvalReport
             text.Append("Thermal state at the end: ").AppendLine(numbers.ThermalAtEnd ?? "n/a").AppendLine();
 
             var own = misses.Where(m => m.Engine == engine).OrderBy(m => Severity(m.Kind)).ThenBy(m => m.PhotoId, StringComparer.Ordinal).ToList();
+            var aside = (setAside ?? []).Where(a => a.Engine == engine).GroupBy(a => a.PhotoId, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal).ToList();
+            if (aside.Count > 0)
+            {
+                text.Append("### Set aside (").Append(aside.Sum(g => g.Count())).AppendLine(" rows)").AppendLine();
+                text.AppendLine("Rows that name an item the truth lists as also in the frame, outside the shelves it covers. They are not predicted, right, wrong or invented.").AppendLine();
+                foreach (var photoRows in aside)
+                {
+                    text.Append("- `").Append(photoRows.Key).Append("`: ").Append(photoRows.Count()).Append(" set aside (")
+                        .Append(string.Join("; ", photoRows.Select(r => "\"" + r.Title + "\""))).AppendLine(")");
+                }
+
+                text.AppendLine();
+            }
+
             text.Append("### Worst misses (").Append(Math.Min(own.Count, MaxMissesPerEngine)).Append(" of ").Append(own.Count).AppendLine(")").AppendLine();
             foreach (var miss in own.Take(MaxMissesPerEngine))
             {
