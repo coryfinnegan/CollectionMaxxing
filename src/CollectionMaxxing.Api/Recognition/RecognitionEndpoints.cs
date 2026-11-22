@@ -1,3 +1,4 @@
+using CollectionMaxxing.Api.Security;
 using CollectionMaxxing.Application.Recognition;
 using Microsoft.Net.Http.Headers;
 
@@ -22,8 +23,20 @@ public static class RecognitionEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .RequireAuthorization();
 
+        // Wakes the shelf reader (it sleeps after five idle minutes) when the scanner opens. Answers at once: 202 when a reader is set up, 204 when none is.
+        recognition.MapPost("/shelf-reader:warm", WarmReader)
+            .WithName("WarmShelfReader").WithTags("Recognition")
+            .Produces(StatusCodes.Status202Accepted)
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .RequireAuthorization()
+            .WithRateLimitGroup(RateLimitGroup.ShelfRead);
+
         return app;
     }
+
+    private static IResult WarmReader(WarmShelfReader.Handler handler) =>
+        handler.Handle() == WarmShelfReader.Outcome.Started ? TypedResults.Accepted((string?)null) : TypedResults.NoContent();
 
     private static IResult Config(HttpContext http, GetRecognitionConfig.Handler handler)
     {

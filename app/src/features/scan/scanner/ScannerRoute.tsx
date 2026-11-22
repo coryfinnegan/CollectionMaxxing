@@ -12,6 +12,7 @@ import { useColors } from '@/theme/tokens';
 import { Button, EmptyState, Screen } from '@/ui';
 import { createDevicePipelineDeps } from '../pipeline/device';
 import { useAutoSnapConfig } from '../pipeline/useAutoSnapConfig';
+import { useWarmReader } from '../pipeline/useWarmReader';
 import { LazyCameraPreview } from './LazyCameraPreview';
 import { ScannerScreen } from './ScannerScreen';
 import { FakeScannerSource, VisionCameraSource } from './ScannerSource';
@@ -52,6 +53,8 @@ function PhoneScanner({ onClose, showClose }: { onClose?: () => void; showClose:
   const autoSnapConfig = useAutoSnapConfig();
   // The Scan tab stays mounted behind the other tabs: the camera, barcodes and auto-snap run only while this screen is showing.
   const active = useScreenActive();
+  // Wakes the server's shelf reader while the scanner shows, so the first shelf snap does not pay its model load (#832). Fire and forget.
+  useWarmReader(active);
   const leaveBound = useCallback(() => {
     boundScanStore.getState().clear();
     router.back();

@@ -1,5 +1,7 @@
 using CollectionMaxxing.Application.ShelfReading;
+using CollectionMaxxing.Application.Recognition;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace CollectionMaxxing.Infrastructure.ShelfReading;
 
@@ -29,6 +31,14 @@ public static class ShelfReaderServiceCollectionExtensions
 #pragma warning disable EXTEXP0001 // Experimental only in name; it is the supported way to drop the app-wide default.
         client.RemoveAllResilienceHandlers();
 #pragma warning restore EXTEXP0001
+
+        // The warm-up has a client of its own, also without the resilience pipeline (a retry would stack wake-ups); ShelfReaderWarmer enforces its timeout.
+        var warmClient = services.AddHttpClient(ShelfReaderWarmer.ClientName, http => http.Timeout = Timeout.InfiniteTimeSpan);
+#pragma warning disable EXTEXP0001
+        warmClient.RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<IShelfReaderWarmer, ShelfReaderWarmer>();
         services.AddSingleton<IShelfStillMaker, ShelfStillMaker>();
         services.AddSingleton<IShelfReaderSetup, ConfiguredShelfReader>();
         return services;
